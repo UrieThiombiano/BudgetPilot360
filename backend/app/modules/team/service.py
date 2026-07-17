@@ -16,6 +16,8 @@ La limite de 3 utilisateurs (rôle `user`) par entreprise est vérifiée ICI,
 côté backend — jamais uniquement côté frontend.
 """
 
+import logging
+
 from fastapi import HTTPException, status
 
 from app.core import audit
@@ -23,7 +25,36 @@ from app.core.config import settings
 from app.core.security import CurrentUser
 from app.core.supabase_client import get_service_client
 
+logger = logging.getLogger(__name__)
+
 MAX_USERS_PER_COMPANY = 3
+
+
+def classify_invite_error(exc: Exception) -> tuple[int, str]:
+    """Traduit une exception `invite_user_by_email` (Supabase/GoTrue) en
+    (status_code, message ACTIONNABLE affiché tel quel à l'utilisateur).
+
+    Sans ça, toute erreur retombe sur un « Échec » générique qui masque la vraie
+    cause — typiquement le quota du service email intégré de Supabase (limité à
+    quelques envois par heure), qui est LA cause la plus fréquente en production
+    tant qu'aucun SMTP personnalisé n'est configuré.
+    Source de vérité unique, partagée avec le module `registration`.
+    """
+    message = str(exc).lower()
+    if "already" in message or "registered" in message or "exists" in message:
+        return status.HTTP_409_CONFLICT, "Un compte existe déjà avec cet email."
+    if "rate limit" in message or "too many" in message:
+        return status.HTTP_502_BAD_GATEWAY, (
+            "Quota d'emails atteint : le service d'envoi intégré de Supabase est "
+            "limité à quelques emails par heure. Réessayez dans une heure, ou "
+            "configurez un SMTP personnalisé (ex. Brevo) pour lever cette limite."
+        )
+    if "invalid" in message:
+        return status.HTTP_422_UNPROCESSABLE_ENTITY, (
+            "Adresse email refusée : elle semble invalide ou non délivrable "
+            "(domaine sans serveur mail). Vérifiez l'orthographe de l'adresse."
+        )
+    return status.HTTP_502_BAD_GATEWAY, "Échec de l'envoi de l'invitation."
 
 
 def list_members(company_id: str) -> list[dict]:
@@ -90,16 +121,11 @@ def invite_member(
             },
         )
     except Exception as exc:
-        message = str(exc).lower()
-        if "already" in message or "registered" in message or "exists" in message:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Un compte existe déjà avec cet email.",
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Échec de l'envoi de l'invitation.",
-        ) from exc
+        # On journalise la cause RÉELLE (visible dans les logs Render) et on
+        # renvoie à l'admin un message actionnable, jamais un « Échec » opaque.
+        logger.warning("Invitation collaborateur échouée pour %s : %s", email, exc)
+        code, detail = classify_invite_error(exc)
+        raise HTTPException(status_code=code, detail=detail) from exc
 
     new_user_id = invited.user.id
 

@@ -154,6 +154,37 @@ def test_invite_duplicate_email(client, as_admin, monkeypatch):
     assert "existe déjà" in resp.json()["detail"]
 
 
+def test_invite_rate_limit_gives_actionable_message(client, as_admin, monkeypatch):
+    """Quota d'emails Supabase atteint : l'admin doit voir un message actionnable
+    (pas un « Échec » opaque) qui pointe vers le SMTP personnalisé."""
+    _mock_team_client(
+        monkeypatch,
+        user_count=1,
+        invite_error=Exception("email rate limit exceeded"),
+    )
+
+    resp = client.post("/team/members", json=INVITE_PAYLOAD)
+
+    assert resp.status_code == 502
+    detail = resp.json()["detail"]
+    assert "Quota" in detail
+    assert "SMTP" in detail
+
+
+def test_invite_invalid_email_from_gotrue(client, as_admin, monkeypatch):
+    """GoTrue valide la délivrabilité : un domaine sans MX est rejeté côté Supabase."""
+    _mock_team_client(
+        monkeypatch,
+        user_count=1,
+        invite_error=Exception("Email address is invalid"),
+    )
+
+    resp = client.post("/team/members", json=INVITE_PAYLOAD)
+
+    assert resp.status_code == 422
+    assert "invalide" in resp.json()["detail"].lower()
+
+
 def test_invite_rolls_back_auth_user_on_profile_failure(client, as_admin, monkeypatch):
     mock_client = _mock_team_client(monkeypatch, user_count=0)
     mock_client.table.return_value.upsert.return_value.execute.side_effect = Exception(

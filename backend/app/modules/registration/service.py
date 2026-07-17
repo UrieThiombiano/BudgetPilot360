@@ -15,6 +15,7 @@ l'invitation échoue, compte supprimé si le rattachement du profil échoue —
 jamais de tenant orphelin.
 """
 
+import logging
 from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
@@ -22,7 +23,9 @@ from fastapi import HTTPException, status
 from app.core import audit
 from app.core.security import CurrentUser
 from app.core.supabase_client import get_service_client
-from app.modules.team.service import _activation_redirect_url
+from app.modules.team.service import _activation_redirect_url, classify_invite_error
+
+logger = logging.getLogger(__name__)
 
 
 def _add_months(start: date, months: int) -> date:
@@ -185,15 +188,11 @@ def approve_request(
             },
         )
     except Exception as exc:
+        # Compensation : pas de tenant orphelin si l'invitation échoue.
         client.table("companies").delete().eq("id", company["id"]).execute()
-        message = str(exc).lower()
-        if "already" in message or "registered" in message or "exists" in message:
-            detail = "Un compte existe déjà avec l'email du responsable."
-        elif "rate limit" in message:
-            detail = "Quota d'emails atteint — réessayez dans une heure (ou configurez un SMTP personnalisé)."
-        else:
-            detail = "Échec de l'envoi de l'email d'activation — demande laissée en attente."
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
+        logger.warning("Invitation owner échouée pour %s : %s", request["email"], exc)
+        code, detail = classify_invite_error(exc)
+        raise HTTPException(status_code=code, detail=detail) from exc
 
     owner_id = str(invited.user.id)
 
