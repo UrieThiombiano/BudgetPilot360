@@ -214,7 +214,7 @@ export default function TeamPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="memberEmail" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                  Email professionnel
+                  Email <span className="font-normal text-slate-400">(pro ou personnel)</span>
                 </label>
                 <input
                   id="memberEmail"
@@ -223,7 +223,7 @@ export default function TeamPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className={inputClass}
-                  placeholder="jean.kabore@entreprise.bf"
+                  placeholder="jean.kabore@gmail.com"
                 />
               </div>
               <div>

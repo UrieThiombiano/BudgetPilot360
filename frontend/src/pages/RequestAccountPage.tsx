@@ -108,8 +108,11 @@ export default function RequestAccountPage() {
                     <input id="reqContact" required minLength={2} maxLength={120} value={form.contact_name} onChange={set("contact_name")} className={inputClass} placeholder="Awa Ouédraogo" />
                   </div>
                   <div>
-                    <label htmlFor="reqEmail" className={labelClass}>Email professionnel</label>
-                    <input id="reqEmail" type="email" required value={form.email} onChange={set("email")} className={inputClass} placeholder="direction@entreprise.bf" />
+                    <label htmlFor="reqEmail" className={labelClass}>Email du responsable</label>
+                    <input id="reqEmail" type="email" required value={form.email} onChange={set("email")} className={inputClass} placeholder="vous@gmail.com" />
+                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                      Un email personnel (Gmail, Yahoo…) convient parfaitement.
+                    </p>
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-3">
