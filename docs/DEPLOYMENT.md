@@ -28,8 +28,9 @@ Trois environnements strictement séparés : le projet Supabase de dev
    `https://<domaine-prod>/set-password` aux Redirect URLs (flux d'invitation
    des collaborateurs).
    ⚠️ **SMTP personnalisé obligatoire en prod** (Auth → Emails → SMTP Settings,
-   ex. Resend/Brevo) : le SMTP intégré Supabase est limité à ~2 emails/heure —
-   insuffisant pour les invitations et confirmations réelles.
+   ex. Brevo — gratuit 300/jour) : le SMTP intégré Supabase est limité à
+   ~2 emails/heure ET impose les modèles anglais. Guide complet + modèles
+   d'emails en français prêts à coller : `docs/EMAIL_TEMPLATES_FR.md`.
 5. **Project Settings → API** : noter `Project URL`, `anon key`,
    `service_role key` (⚠️ backend uniquement).
 6. Créer le compte super admin Pukri : inscrire l'utilisateur via l'app (ou
