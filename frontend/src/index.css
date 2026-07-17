@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Focus clavier visible PARTOUT (boutons, liens, inputs) — a11y non négociable.
+     :focus-visible ne s'active qu'à la navigation clavier, pas au clic souris. */
+  *:focus-visible {
+    outline: 2px solid theme("colors.indigo.500");
+    outline-offset: 2px;
+    border-radius: theme("borderRadius.md");
+  }
+
+  /* Les inputs gardent leur ring Tailwind au focus : pas de double contour. */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+  }
+}
