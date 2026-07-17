@@ -41,10 +41,12 @@ def _mock_team_client(monkeypatch, *, members=None, user_count=0, invite_error=N
     """
     mock_client = MagicMock()
     after_first_eq = mock_client.table.return_value.select.return_value.eq.return_value
-    after_first_eq.order.return_value.execute.return_value = SimpleNamespace(
-        data=members or []
+    # list_members : .eq(company_id).is_(removed_at, null).order(created_at).execute()
+    after_first_eq.is_.return_value.order.return_value.execute.return_value = (
+        SimpleNamespace(data=members or [])
     )
-    after_first_eq.eq.return_value.execute.return_value = SimpleNamespace(
+    # count_users : .eq(company_id).eq(role).is_(removed_at, null).execute()
+    after_first_eq.eq.return_value.is_.return_value.execute.return_value = SimpleNamespace(
         count=user_count, data=[]
     )
 
@@ -63,7 +65,7 @@ def _mock_team_client(monkeypatch, *, members=None, user_count=0, invite_error=N
 
 
 def test_list_members(client, as_admin, monkeypatch):
-    _mock_team_client(monkeypatch, members=MEMBERS, user_count=1)
+    mock_client = _mock_team_client(monkeypatch, members=MEMBERS, user_count=1)
 
     resp = client.get("/team/members")
 
@@ -75,6 +77,12 @@ def test_list_members(client, as_admin, monkeypatch):
     assert body["can_add_user"] is True
     jean = next(m for m in body["members"] if m["id"] == "u1")
     assert jean["job_title"] == "Comptable"
+
+    # Les profils retirés sont exclus du listing (filtre removed_at IS NULL).
+    select_after_eq = (
+        mock_client.table.return_value.select.return_value.eq.return_value
+    )
+    select_after_eq.is_.assert_any_call("removed_at", "null")
 
 
 def test_list_members_forbidden_for_simple_user(client, as_user):
@@ -208,3 +216,120 @@ def test_invite_requires_names_and_valid_email(client, as_admin, monkeypatch):
         client.post("/team/members", json={**INVITE_PAYLOAD, "first_name": ""}).status_code
         == 422
     )
+
+
+# --- Retrait (désactivation douce) d'un utilisateur ---
+
+def _mock_remove_client(monkeypatch, *, target):
+    """Mocke les chaînes de remove_member :
+    - fetch cible : table().select().eq(id).execute() → .data
+    - marquage    : table().update({removed_at}).eq(id).execute()
+    - ban Auth    : auth.admin.update_user_by_id(id, {ban_duration})
+    """
+    mock_client = MagicMock()
+    select_eq = mock_client.table.return_value.select.return_value.eq.return_value
+    select_eq.execute.return_value = SimpleNamespace(data=[target] if target else [])
+    mock_client.table.return_value.update.return_value.eq.return_value.execute.return_value = (
+        SimpleNamespace(data=[])
+    )
+    monkeypatch.setattr(team_service, "get_service_client", lambda: mock_client)
+    return mock_client
+
+
+def _target(as_admin, **over):
+    base = {
+        "id": "u-remove",
+        "company_id": as_admin.company_id,
+        "role": "user",
+        "removed_at": None,
+        "email": "u2@acme-corp.fr",
+    }
+    base.update(over)
+    return base
+
+
+def test_remove_member_success(client, as_admin, monkeypatch, silence_audit):
+    mock_client = _mock_remove_client(monkeypatch, target=_target(as_admin))
+
+    resp = client.delete("/team/members/u-remove")
+
+    assert resp.status_code == 204
+    # Le profil est marqué retiré (jamais supprimé — imputabilité).
+    update_payload = mock_client.table.return_value.update.call_args.args[0]
+    assert "removed_at" in update_payload
+    mock_client.table.return_value.update.return_value.eq.assert_called_with("id", "u-remove")
+    # Le compte Auth est banni (plus aucune session possible).
+    ban_call = mock_client.auth.admin.update_user_by_id.call_args
+    assert ban_call.args[0] == "u-remove"
+    assert ban_call.args[1]["ban_duration"]
+    # Action sensible auditée.
+    assert any(c["action"] == "team.member_removed" for c in silence_audit)
+
+
+def test_remove_member_forbidden_for_simple_user(client, as_user, monkeypatch):
+    mock_client = _mock_remove_client(monkeypatch, target=_target(as_user))
+
+    resp = client.delete("/team/members/u-remove")
+
+    assert resp.status_code == 403
+    mock_client.auth.admin.update_user_by_id.assert_not_called()
+
+
+def test_remove_member_not_found(client, as_admin, monkeypatch):
+    _mock_remove_client(monkeypatch, target=None)
+
+    resp = client.delete("/team/members/does-not-exist")
+
+    assert resp.status_code == 404
+
+
+def test_remove_member_other_company_is_404(client, as_admin, monkeypatch):
+    # Un profil d'une autre entreprise ne doit pas être divulgué → 404, pas 403.
+    mock_client = _mock_remove_client(
+        monkeypatch, target=_target(as_admin, company_id="99999999-9999-9999-9999-999999999999")
+    )
+
+    resp = client.delete("/team/members/u-remove")
+
+    assert resp.status_code == 404
+    mock_client.auth.admin.update_user_by_id.assert_not_called()
+
+
+def test_remove_member_cannot_remove_admin(client, as_admin, monkeypatch):
+    _mock_remove_client(monkeypatch, target=_target(as_admin, id="a-other", role="admin"))
+
+    resp = client.delete("/team/members/a-other")
+
+    assert resp.status_code == 400
+    assert "administrateur" in resp.json()["detail"].lower()
+
+
+def test_remove_member_cannot_remove_self(client, as_admin, monkeypatch):
+    _mock_remove_client(monkeypatch, target=_target(as_admin, id=as_admin.id, role="admin"))
+
+    resp = client.delete(f"/team/members/{as_admin.id}")
+
+    assert resp.status_code == 400
+    assert "vous-même" in resp.json()["detail"].lower()
+
+
+def test_remove_member_already_removed(client, as_admin, monkeypatch):
+    _mock_remove_client(
+        monkeypatch, target=_target(as_admin, removed_at="2026-07-17T00:00:00+00:00")
+    )
+
+    resp = client.delete("/team/members/u-remove")
+
+    assert resp.status_code == 409
+    assert "déjà retiré" in resp.json()["detail"].lower()
+
+
+def test_super_admin_can_remove_across_companies(client, as_super_admin, monkeypatch):
+    mock_client = _mock_remove_client(
+        monkeypatch, target=_target(as_super_admin, company_id="77777777-7777-7777-7777-777777777777")
+    )
+
+    resp = client.delete("/team/members/u-remove")
+
+    assert resp.status_code == 204
+    mock_client.auth.admin.update_user_by_id.assert_called_once()

@@ -39,3 +39,18 @@ async def invite_member(
         job_title=payload.job_title,
     )
     return MemberOut(**profile)
+
+
+@router.delete("/members/{member_id}", status_code=204)
+async def remove_member(
+    member_id: str,
+    user: CurrentUser = Depends(require_role("admin", "super_admin")),
+):
+    """Retire (désactive) un utilisateur de l'entreprise.
+
+    Accès révoqué + slot des 3 users libéré, mais l'historique de dépenses est
+    conservé (imputabilité — on ne supprime jamais le profil). Refusé si la cible
+    n'est pas un `user`, appartient à une autre entreprise, ou est l'appelant.
+    """
+    service.remove_member(admin=user, member_id=member_id)
+    return None

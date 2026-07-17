@@ -17,6 +17,7 @@ côté backend — jamais uniquement côté frontend.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 
@@ -28,6 +29,10 @@ from app.core.supabase_client import get_service_client
 logger = logging.getLogger(__name__)
 
 MAX_USERS_PER_COMPANY = 3
+
+# Bannissement Auth d'un utilisateur retiré : durée « quasi infinie » (100 ans).
+# Réversible côté Supabase (ban_duration = "none" pour réactiver).
+REMOVED_BAN_DURATION = "876000h"
 
 
 def classify_invite_error(exc: Exception) -> tuple[int, str]:
@@ -58,11 +63,13 @@ def classify_invite_error(exc: Exception) -> tuple[int, str]:
 
 
 def list_members(company_id: str) -> list[dict]:
+    """Membres ACTIFS de l'entreprise (les profils retirés sont exclus)."""
     client = get_service_client()
     resp = (
         client.table("profiles")
         .select("id, email, full_name, job_title, role, created_at")
         .eq("company_id", company_id)
+        .is_("removed_at", "null")
         .order("created_at")
         .execute()
     )
@@ -70,12 +77,14 @@ def list_members(company_id: str) -> list[dict]:
 
 
 def count_users(company_id: str) -> int:
+    """Nombre d'utilisateurs ACTIFS (role=user, non retirés) : base de la limite de 3."""
     client = get_service_client()
     resp = (
         client.table("profiles")
         .select("id", count="exact")
         .eq("company_id", company_id)
         .eq("role", "user")
+        .is_("removed_at", "null")
         .execute()
     )
     return resp.count or 0
@@ -157,3 +166,75 @@ def invite_member(
         details={"member_id": str(new_user_id), "email": email},
     )
     return profile
+
+
+def remove_member(admin: CurrentUser, member_id: str) -> None:
+    """Retire (désactive) un utilisateur : profil marqué `removed_at` + compte
+    Auth banni. Le slot des 3 users se libère, l'historique de dépenses reste
+    intact (imputabilité). On ne supprime JAMAIS le profil (FK ON DELETE RESTRICT).
+
+    RBAC (vérifié ICI, côté backend) :
+    - seul un membre `user` peut être retiré (jamais un admin/super_admin) ;
+    - un admin ne peut retirer que dans SA propre entreprise ;
+    - un super_admin peut retirer dans n'importe quelle entreprise ;
+    - impossible de se retirer soi-même.
+    """
+    client = get_service_client()
+    resp = (
+        client.table("profiles")
+        .select("id, company_id, role, removed_at, email")
+        .eq("id", member_id)
+        .execute()
+    )
+    rows = resp.data or []
+    target = rows[0] if rows else None
+
+    # 404 aussi pour un profil hors du périmètre de l'admin : on ne divulgue pas
+    # l'existence d'un utilisateur d'une autre entreprise (le super_admin bypass).
+    is_super = admin.role == "super_admin"
+    if target is None or (not is_super and target["company_id"] != admin.company_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur introuvable."
+        )
+
+    if target["id"] == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Vous ne pouvez pas vous retirer vous-même.",
+        )
+
+    if target["role"] != "user":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Seul un utilisateur peut être retiré (pas un administrateur).",
+        )
+
+    if target["removed_at"] is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet utilisateur est déjà retiré.",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    client.table("profiles").update({"removed_at": now}).eq("id", member_id).execute()
+
+    # Bannissement du compte Auth : plus aucune session possible. Best-effort —
+    # si l'appel échoue, le profil est déjà marqué retiré (hors liste/compte) ;
+    # on journalise sans faire échouer l'action.
+    try:
+        client.auth.admin.update_user_by_id(
+            member_id, {"ban_duration": REMOVED_BAN_DURATION}
+        )
+    except Exception:
+        logger.warning(
+            "Échec du bannissement Auth pour %s (profil déjà marqué retiré)",
+            member_id,
+            exc_info=True,
+        )
+
+    audit.log_action(
+        company_id=target["company_id"],
+        actor_id=admin.id,
+        action="team.member_removed",
+        details={"member_id": member_id, "email": target.get("email")},
+    )

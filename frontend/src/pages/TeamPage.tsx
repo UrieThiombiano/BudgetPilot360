@@ -36,6 +36,9 @@ export default function TeamPage() {
   const [jobTitle, setJobTitle] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [removeMessage, setRemoveMessage] = useState<string | null>(null);
 
   const { data: team, isLoading, isError } = useQuery({
     queryKey: ["team"],
@@ -66,6 +69,23 @@ export default function TeamPage() {
     onError: (err) => setFormError(apiErrorMessage(err)),
   });
 
+  const removeMember = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/team/members/${id}`)).data,
+    onSuccess: () => {
+      setRemoveMessage(
+        "Utilisateur retiré : son accès est révoqué et un slot s'est libéré. " +
+          "Ses dépenses passées restent conservées."
+      );
+      setRemoveError(null);
+      setConfirmingId(null);
+      void queryClient.invalidateQueries({ queryKey: ["team"] });
+    },
+    onError: (err) => {
+      setRemoveError(apiErrorMessage(err));
+      setConfirmingId(null);
+    },
+  });
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
@@ -85,6 +105,12 @@ export default function TeamPage() {
 
       {/* Liste des membres */}
       <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+        {(removeError || removeMessage) && (
+          <div className="border-b border-slate-200 p-4 dark:border-slate-800">
+            {removeError && <ErrorBanner>{removeError}</ErrorBanner>}
+            {removeMessage && <SuccessBanner>{removeMessage}</SuccessBanner>}
+          </div>
+        )}
         {isLoading && (
           <div aria-busy="true" className="space-y-3 p-6">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -116,6 +142,9 @@ export default function TeamPage() {
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                     Ajouté le
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -150,6 +179,45 @@ export default function TeamPage() {
                       {m.created_at
                         ? new Date(m.created_at).toLocaleDateString("fr-FR")
                         : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {m.role !== "user" ? (
+                        <span className="text-xs text-slate-400 dark:text-slate-600">—</span>
+                      ) : confirmingId === m.id ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            Retirer ?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeMember.mutate(m.id)}
+                            disabled={removeMember.isPending}
+                            className="rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                          >
+                            {removeMember.isPending ? "…" : "Confirmer"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmingId(null)}
+                            className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                          >
+                            Annuler
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfirmingId(m.id);
+                            setRemoveError(null);
+                            setRemoveMessage(null);
+                          }}
+                          aria-label={`Retirer ${m.full_name || m.email || "cet utilisateur"}`}
+                          className="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/40"
+                        >
+                          Retirer
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
