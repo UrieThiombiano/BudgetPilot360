@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 import { MessageSquare, Paperclip, type LucideProps } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 import { CardSkeleton, EmptyState, ErrorBanner, SuccessBanner } from "./ui";
 import { fcfa } from "../lib/format";
 
@@ -33,6 +34,11 @@ export interface TxConfig {
   emptyDescription: string;
   historyErrorText: string;
   noCategoryText: string;
+  /** Variantes affichées aux admins (qui valident et créent les catégories eux-mêmes). */
+  titleAdmin?: string;
+  subtitleAdmin?: string;
+  successMessageAdmin?: string;
+  noCategoryTextAdmin?: string;
   descPlaceholder: string;
   amountPlaceholder: string;
   sourceLabel?: string;
@@ -125,6 +131,14 @@ export default function TransactionsPage({ config }: { config: TxConfig }) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Les admins créent les catégories et valident eux-mêmes : on adapte les libellés.
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === "admin" || profile?.role === "super_admin";
+  const title = (isAdmin && config.titleAdmin) || config.title;
+  const subtitle = (isAdmin && config.subtitleAdmin) || config.subtitle;
+  const noCategoryText = (isAdmin && config.noCategoryTextAdmin) || config.noCategoryText;
+  const txSuccessMessage = (isAdmin && config.successMessageAdmin) || config.successMessage;
+
   const today = new Date().toISOString().slice(0, 10);
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(today);
@@ -169,7 +183,7 @@ export default function TransactionsPage({ config }: { config: TxConfig }) {
       setSource("");
       setDate(today);
       if (fileRef.current) fileRef.current.value = "";
-      setSuccessMessage(config.successMessage);
+      setSuccessMessage(txSuccessMessage);
       void queryClient.invalidateQueries({ queryKey: config.minesKey });
     },
     onError: (err) => setFormError(apiErrorMessage(err)),
@@ -201,14 +215,14 @@ export default function TransactionsPage({ config }: { config: TxConfig }) {
 
   return (
     <div className="max-w-4xl">
-      <h1 className="font-display text-2xl font-semibold tracking-tight text-fg">{config.title}</h1>
-      <p className="mt-1.5 text-sm text-fg-muted">{config.subtitle}</p>
+      <h1 className="font-display text-2xl font-semibold tracking-tight text-fg">{title}</h1>
+      <p className="mt-1.5 text-sm text-fg-muted">{subtitle}</p>
 
       {/* Formulaire de création */}
       <section className="card mt-6 p-6">
         <h2 className="font-display text-base font-semibold text-fg">{config.newLabel}</h2>
         {categories?.length === 0 ? (
-          <p className="mt-3 text-sm text-fg-muted">{config.noCategoryText}</p>
+          <p className="mt-3 text-sm text-fg-muted">{noCategoryText}</p>
         ) : (
           <form onSubmit={handleSubmit} className="mt-4 space-y-4">
             <div className="grid gap-4 sm:grid-cols-3">

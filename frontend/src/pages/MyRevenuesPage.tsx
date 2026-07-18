@@ -21,6 +21,9 @@ const REVENUE_CONFIG: TxConfig = {
   historyErrorText: "Impossible d'afficher vos recettes. Réessayez dans un instant.",
   noCategoryText:
     "Aucune catégorie de recette — demandez à votre admin d'en créer dans « Budget & catégories ».",
+  titleAdmin: "Recettes",
+  noCategoryTextAdmin:
+    "Aucune catégorie de recette — créez-en une dans « Budget & catégories ».",
   descPlaceholder: "Ex : vente de marchandises, prestation de service…",
   amountPlaceholder: "150000",
   sourceLabel: "Source / client (facultatif)",

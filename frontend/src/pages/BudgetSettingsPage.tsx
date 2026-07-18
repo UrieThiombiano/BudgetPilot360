@@ -141,24 +141,24 @@ export default function BudgetSettingsPage() {
 
       {error && <ErrorBanner className="mt-4">{error}</ErrorBanner>}
 
-      {/* Budget annuel */}
-      <section className="card mt-6 p-6">
-        <h2 className="font-display text-base font-semibold text-fg">Budget annuel de dépenses</h2>
-        <div className="mt-4 flex flex-wrap items-end gap-6">
-          <div>
-            <p className="font-display text-3xl font-bold tracking-tight tnum text-fg">{company ? fcfa(annual) : "…"}</p>
-            <p className="mt-1 text-xs text-fg-subtle">L'enveloppe annuelle de dépenses de l'entreprise.</p>
-          </div>
-          {isAdmin && (
+      {/* Budget annuel — réservé aux admins : l'enveloppe globale ne concerne pas les utilisateurs. */}
+      {isAdmin && (
+        <section className="card mt-6 p-6">
+          <h2 className="font-display text-base font-semibold text-fg">Budget annuel de dépenses</h2>
+          <div className="mt-4 flex flex-wrap items-end gap-6">
+            <div>
+              <p className="font-display text-3xl font-bold tracking-tight tnum text-fg">{company ? fcfa(annual) : "…"}</p>
+              <p className="mt-1 text-xs text-fg-subtle">L'enveloppe annuelle de dépenses de l'entreprise.</p>
+            </div>
             <form onSubmit={handleBudgetSubmit} className="flex items-center gap-2">
               <input type="number" min={0} step="0.01" value={budgetInput ?? String(annual)} onChange={(e) => setBudgetInput(e.target.value)} className="field tnum w-44" aria-label="Budget annuel" />
               <motion.button type="submit" whileTap={{ scale: 0.98 }} disabled={saveBudget.isPending || budgetInput === null} className="btn btn-primary">
                 {saveBudget.isPending ? "…" : "Enregistrer"}
               </motion.button>
             </form>
-          )}
-        </div>
-      </section>
+          </div>
+        </section>
+      )}
 
       {/* Catégories */}
       <section className="card mt-8 p-6">
@@ -183,7 +183,7 @@ export default function BudgetSettingsPage() {
         <p className="mt-2 text-xs text-fg-subtle">
           {L.allocated} : <span className="tnum">{fcfa(totalPlanned)}</span> · {L.done} : <span className="tnum">{fcfa(totalConsumed)}</span>
         </p>
-        {overAllocated && (
+        {isAdmin && overAllocated && (
           <p className="mt-3 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning-ink">
             Les budgets par catégorie (<span className="tnum">{fcfa(totalPlanned)}</span>) dépassent le budget annuel (<span className="tnum">{fcfa(annual)}</span>).
           </p>

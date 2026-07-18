@@ -12,6 +12,14 @@ vi.mock("../lib/api", () => ({
   apiErrorMessage: () => "Une erreur inattendue est survenue. Réessayez.",
 }));
 
+// Rôle mutable pour tester les libellés user vs admin.
+const authState = vi.hoisted(() => ({ role: "user" }));
+vi.mock("../context/AuthContext", () => ({
+  useAuth: () => ({
+    profile: { id: "u1", email: "u@ex.com", company_id: "co1", role: authState.role },
+  }),
+}));
+
 const apiGet = vi.mocked(api.get);
 const apiPost = vi.mocked(api.post);
 
@@ -41,6 +49,7 @@ function renderPage() {
 
 describe("MyRevenuesPage", () => {
   beforeEach(() => {
+    authState.role = "user";
     apiGet.mockReset();
     apiPost.mockReset();
     apiGet.mockImplementation(async (url: string) => {
@@ -77,5 +86,23 @@ describe("MyRevenuesPage", () => {
     expect(
       await screen.findByText(/comptée dans les recettes de l'entreprise/)
     ).toBeInTheDocument();
+  });
+
+  it("adapte les libellés pour un admin (titre, aucune catégorie)", async () => {
+    authState.role = "admin";
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === "/categories") return { data: [] } as never;
+      if (url === "/revenues/mine") return { data: [] } as never;
+      throw new Error(`GET inattendu : ${url}`);
+    });
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Recettes" })
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/créez-en une dans « Budget & catégories »/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/demandez à votre admin/)).not.toBeInTheDocument();
   });
 });

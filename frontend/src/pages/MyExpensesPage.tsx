@@ -21,6 +21,11 @@ const EXPENSE_CONFIG: TxConfig = {
   historyErrorText: "Impossible d'afficher vos dépenses. Réessayez dans un instant.",
   noCategoryText:
     "Aucune catégorie disponible — demandez à votre admin d'en créer dans « Budget & catégories ».",
+  titleAdmin: "Dépenses",
+  subtitleAdmin: "Enregistrez vos dépenses avec justificatif — validez-les ensuite dans « Approbations ».",
+  successMessageAdmin: "Dépense soumise — retrouvez-la dans « Approbations » pour la valider.",
+  noCategoryTextAdmin:
+    "Aucune catégorie de dépense — créez-en une dans « Budget & catégories ».",
   descPlaceholder: "Ex : taxi aéroport, déjeuner client…",
   amountPlaceholder: "25000",
 };
