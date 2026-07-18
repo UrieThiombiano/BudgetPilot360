@@ -1,5 +1,6 @@
 import { Receipt } from "lucide-react";
 import TransactionsPage, { type TxConfig } from "../components/TransactionsPage";
+import RecurringExpenses from "../components/RecurringExpenses";
 
 const EXPENSE_CONFIG: TxConfig = {
   kind: "expense",
@@ -31,5 +32,6 @@ const EXPENSE_CONFIG: TxConfig = {
 };
 
 export default function MyExpensesPage() {
-  return <TransactionsPage config={EXPENSE_CONFIG} />;
+  // Les dépenses automatiques (licences, abonnements…) sont réservées aux admins.
+  return <TransactionsPage config={EXPENSE_CONFIG} adminExtra={<RecurringExpenses />} />;
 }

@@ -127,7 +127,14 @@ function Comments({ endpoint }: { endpoint: string }) {
   );
 }
 
-export default function TransactionsPage({ config }: { config: TxConfig }) {
+export default function TransactionsPage({
+  config,
+  adminExtra,
+}: {
+  config: TxConfig;
+  /** Section additionnelle réservée aux admins (ex : dépenses automatiques). */
+  adminExtra?: React.ReactNode;
+}) {
   const queryClient = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -266,6 +273,9 @@ export default function TransactionsPage({ config }: { config: TxConfig }) {
           </form>
         )}
       </section>
+
+      {/* Section admin (ex : dépenses automatiques) */}
+      {isAdmin && adminExtra}
 
       {/* Historique */}
       <section className="mt-8 space-y-3">

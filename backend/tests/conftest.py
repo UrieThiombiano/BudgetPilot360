@@ -42,6 +42,20 @@ def capture_notifications(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def capture_materializations(monkeypatch):
+    """Neutralise le catch-up des dépenses automatiques pour TOUTE la suite
+    (appel réseau sinon, déclenché par /dashboard/summary et /expenses/mine).
+    test_recurring.py teste la vraie logique en capturant la fonction à l'import."""
+    import app.modules.recurring.service as recurring_module
+
+    calls = []
+    monkeypatch.setattr(
+        recurring_module, "materialize_due", lambda company_id: calls.append(company_id)
+    )
+    return calls
+
+
+@pytest.fixture(autouse=True)
 def capture_threshold_checks(monkeypatch):
     """Neutralise le contrôle de seuils budgétaires pour toute la suite
     (requêtes réseau sinon). test_alerts.py teste la vraie logique en

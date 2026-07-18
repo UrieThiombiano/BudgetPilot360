@@ -98,6 +98,7 @@ describe("MyExpensesPage", () => {
     apiGet.mockImplementation(async (url: string) => {
       if (url === "/categories") return { data: [] } as never;
       if (url === "/expenses/mine") return { data: [] } as never;
+      if (url === "/recurring-expenses") return { data: [] } as never;
       throw new Error(`GET inattendu : ${url}`);
     });
     renderPage();
@@ -113,6 +114,52 @@ describe("MyExpensesPage", () => {
     ).toBeInTheDocument();
     // Pas de « demandez à votre admin » pour un admin.
     expect(screen.queryByText(/demandez à votre admin/)).not.toBeInTheDocument();
+  });
+
+  it("expose les dépenses automatiques aux admins, jamais aux users", async () => {
+    authState.role = "admin";
+    apiGet.mockImplementation(async (url: string) => {
+      if (url === "/categories") return { data: CATEGORIES } as never;
+      if (url === "/expenses/mine") return { data: [] } as never;
+      if (url === "/recurring-expenses")
+        return {
+          data: [
+            {
+              id: "rec1",
+              category_id: "c1",
+              category_name: "Transport",
+              amount: 45000,
+              description: "Licence comptabilité",
+              day_of_month: 1,
+              months_total: 12,
+              months_done: 2,
+              active: true,
+              next_due: "2026-08-01",
+            },
+          ],
+        } as never;
+      throw new Error(`GET inattendu : ${url}`);
+    });
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "Dépenses automatiques" })
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/Licence comptabilité/)).toBeInTheDocument();
+    expect(screen.getByText(/2\/12 décompté/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Activer le décompte automatique/ })
+    ).toBeInTheDocument();
+  });
+
+  it("cache les dépenses automatiques pour un user", async () => {
+    renderPage(); // rôle user par défaut — /recurring-expenses ne doit JAMAIS être appelé
+
+    await screen.findByRole("heading", { name: "Mes dépenses" });
+    expect(
+      screen.queryByRole("heading", { name: "Dépenses automatiques" })
+    ).not.toBeInTheDocument();
+    expect(apiGet).not.toHaveBeenCalledWith("/recurring-expenses");
   });
 
   it("bloque la soumission sans catégorie choisie", async () => {

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, UploadFile
 
 from app.core.security import CurrentUser, get_current_user, require_role
 from app.modules.expenses import service
+from app.modules.recurring import service as recurring
 from app.modules.expenses.schemas import (
     CommentCreate,
     CommentOut,
@@ -42,6 +43,10 @@ async def create_expense(
 @router.get("/mine", response_model=list[ExpenseOut])
 async def list_my_expenses(user: CurrentUser = Depends(get_current_user)):
     """Les dépenses de l'utilisateur courant, avec leur statut."""
+    # Catch-up des dépenses automatiques dues (best-effort, ne lève jamais) —
+    # deuxième point d'entrée fréquent après le dashboard.
+    if user.company_id:
+        recurring.materialize_due(user.company_id)
     return [_expense_out(e) for e in service.list_my_expenses(user)]
 
 
