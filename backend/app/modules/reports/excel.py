@@ -1,14 +1,24 @@
 """
-Rendu Excel du rapport financier (openpyxl). Cinq feuilles formatées :
-Résumé (Recettes | Dépenses | Bénéfice), Recettes (détail), Dépenses (détail),
-Recettes par catégorie, Dépenses par catégorie.
+Rendu Excel du rapport financier (openpyxl). Feuilles formatées :
+Résumé (Recettes | Dépenses | Bénéfice), Graphiques (natifs openpyxl.chart,
+mêmes couleurs par catégorie que le dashboard), puis — en rapport complet —
+Recettes (détail), Dépenses (détail), Recettes/Dépenses par catégorie.
+`scope="summary"` ne produit que Résumé + Graphiques.
 """
 
 import io
 
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.chart.series import DataPoint
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
+from app.core.category_colors import EXPENSE_COLOR, PLANNED_COLOR, category_color
+
+
+def _fill_hex(color: str) -> str:
+    return color.lstrip("#").upper()
 
 INDIGO = "4F46E5"
 HEADER_FONT = Font(bold=True, color="FFFFFF", size=10)
@@ -101,7 +111,74 @@ def _breakdown_sheet(wb, title, items, headers, widths):
     _fit_columns(ws, widths)
 
 
-def render_excel(data: dict) -> bytes:
+def _pie_block(ws, *, title: str, rows: list[dict], start_col: int, anchor: str) -> None:
+    """Zone de données + camembert natif, une couleur par catégorie (palette
+    partagée avec le dashboard)."""
+    col_name, col_val = start_col, start_col + 1
+    ws.cell(row=2, column=col_name, value=title).font = LABEL_FONT
+    ws.cell(row=3, column=col_name, value="Catégorie").font = Font(bold=True, size=9)
+    ws.cell(row=3, column=col_val, value="Montant").font = Font(bold=True, size=9)
+    for i, c in enumerate(rows, start=4):
+        ws.cell(row=i, column=col_name, value=c["name"])
+        cell = ws.cell(row=i, column=col_val, value=c["consumed"])
+        cell.number_format = MONEY_FORMAT
+    if not rows:
+        return
+    pie = PieChart()
+    pie.title = title
+    pie.height, pie.width = 7.5, 11
+    labels = Reference(ws, min_col=col_name, min_row=4, max_row=3 + len(rows))
+    values = Reference(ws, min_col=col_val, min_row=4, max_row=3 + len(rows))
+    pie.add_data(values, titles_from_data=False)
+    pie.set_categories(labels)
+    serie = pie.series[0]
+    for idx, c in enumerate(rows):
+        pt = DataPoint(idx=idx)
+        pt.graphicalProperties.solidFill = _fill_hex(category_color(c["id"]))
+        serie.data_points.append(pt)
+    ws.add_chart(pie, anchor)
+
+
+def _charts_sheet(wb: Workbook, data: dict) -> None:
+    ws = wb.create_sheet("Graphiques")
+    ws["A1"] = "Graphiques du rapport — mêmes couleurs que le dashboard BudgetPilot360"
+    ws["A1"].font = Font(size=9, color="6B6B76")
+
+    exp_rows = [c for c in data["breakdown"] if c["consumed"] > 0][:8]
+    rev_rows = [c for c in data["revenue_breakdown"] if c["consumed"] > 0][:8]
+    _pie_block(ws, title="Dépenses par catégorie", rows=exp_rows, start_col=1, anchor="D2")
+    _pie_block(ws, title="Recettes par catégorie", rows=rev_rows, start_col=12, anchor="O2")
+
+    # Budget vs Consommé (barres horizontales groupées)
+    bva_rows = [
+        c for c in data["breakdown"] if c["consumed"] > 0 or c["planned_budget"] > 0
+    ][:8]
+    base = 22
+    ws.cell(row=base, column=1, value="Budget vs Consommé (dépenses)").font = LABEL_FONT
+    ws.cell(row=base + 1, column=1, value="Catégorie").font = Font(bold=True, size=9)
+    ws.cell(row=base + 1, column=2, value="Budget prévu").font = Font(bold=True, size=9)
+    ws.cell(row=base + 1, column=3, value="Consommé").font = Font(bold=True, size=9)
+    for i, c in enumerate(bva_rows, start=base + 2):
+        ws.cell(row=i, column=1, value=c["name"])
+        ws.cell(row=i, column=2, value=c["planned_budget"]).number_format = MONEY_FORMAT
+        ws.cell(row=i, column=3, value=c["consumed"]).number_format = MONEY_FORMAT
+    if bva_rows:
+        bar = BarChart()
+        bar.type = "bar"  # horizontal
+        bar.grouping = "clustered"
+        bar.title = "Budget vs Consommé par catégorie"
+        bar.height, bar.width = 9, 16
+        cats = Reference(ws, min_col=1, min_row=base + 2, max_row=base + 1 + len(bva_rows))
+        values = Reference(ws, min_col=2, max_col=3, min_row=base + 1, max_row=base + 1 + len(bva_rows))
+        bar.add_data(values, titles_from_data=True)
+        bar.set_categories(cats)
+        bar.series[0].graphicalProperties.solidFill = _fill_hex(PLANNED_COLOR)
+        bar.series[1].graphicalProperties.solidFill = _fill_hex(EXPENSE_COLOR)
+        ws.add_chart(bar, f"E{base}")
+    _fit_columns(ws, [24, 16, 16])
+
+
+def render_excel(data: dict, scope: str = "full") -> bytes:
     wb = Workbook()
 
     # --- Feuille Résumé : Recettes | Dépenses | Bénéfice ---
@@ -132,6 +209,14 @@ def render_excel(data: dict) -> bytes:
     _line(ws, 11, "Dépenses rejetées", data["total_rejected"], data["count_rejected"])
     _line(ws, 12, "Recettes en attente", data["total_revenue_pending"], data["count_revenue_pending"])
     _fit_columns(ws, [30, 18, 16])
+
+    # --- Graphiques natifs (répartition + budget vs réalisé) ---
+    _charts_sheet(wb, data)
+
+    if scope == "summary":
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
 
     # --- Détails ---
     _detail_sheet(

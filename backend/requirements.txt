@@ -14,3 +14,4 @@ python-multipart==0.0.12
 httpx==0.27.2
 weasyprint==69.0  # PDF ; sur Windows : DLL GTK/Pango requises (MSYS2 pango) + WEASYPRINT_DLL_DIRECTORIES
 openpyxl==3.1.5  # Excel
+matplotlib==3.10.0  # graphiques du rapport PDF (backend Agg, aucun affichage)

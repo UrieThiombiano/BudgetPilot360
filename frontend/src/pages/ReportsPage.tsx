@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { FileSpreadsheet, FileText } from "lucide-react";
+import { Eye, FileBarChart } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
-import axios from "axios";
-import { api } from "../lib/api";
+import { api, apiErrorMessage } from "../lib/api";
+import ReportPreview, { type ReportData } from "../components/ReportPreview";
 
 type PresetId = "month" | "quarter" | "year" | "last30" | "custom";
-type ExportFormat = "pdf" | "excel";
 
 const toISO = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -46,46 +45,32 @@ const frDate = (iso: string) => {
   return `${d}/${m}/${y}`;
 };
 
-async function blobErrorMessage(error: unknown): Promise<string> {
-  if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
-    try {
-      const detail = JSON.parse(await error.response.data.text())?.detail;
-      if (typeof detail === "string") return detail;
-    } catch {
-      /* blob non-JSON */
-    }
-  }
-  return "Impossible de générer le rapport. Réessayez dans un instant.";
-}
-
+/**
+ * Rapports — flux « Générer → Prévisualiser → Décider » : un seul bouton
+ * calcule les données (GET /reports/data), l'aperçu s'ouvre dans l'app, et
+ * c'est depuis l'aperçu qu'on télécharge (PDF/Excel, complet ou résumé),
+ * imprime, ou ferme sans rien télécharger.
+ */
 export default function ReportsPage() {
   const [preset, setPreset] = useState<PresetId>("year");
   const [customFrom, setCustomFrom] = useState(presetRange("month").from);
   const [customTo, setCustomTo] = useState(presetRange("month").to);
   const [error, setError] = useState<string | null>(null);
+  const [report, setReport] = useState<ReportData | null>(null);
 
   const range = preset === "custom" ? { from: customFrom, to: customTo } : presetRange(preset);
   const rangeValid = range.from !== "" && range.to !== "" && range.from <= range.to;
 
-  const exporter = useMutation({
-    mutationFn: async (format: ExportFormat) => {
-      const resp = await api.get("/reports/export", {
-        params: { format, date_from: range.from, date_to: range.to },
-        responseType: "blob",
-      });
-      const extension = format === "pdf" ? "pdf" : "xlsx";
-      const url = URL.createObjectURL(resp.data as Blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `rapport_budgetpilot360_${range.from}_${range.to}.${extension}`;
-      link.click();
-      URL.revokeObjectURL(url);
-    },
+  const generate = useMutation({
+    mutationFn: async () =>
+      (await api.get<ReportData>("/reports/data", {
+        params: { date_from: range.from, date_to: range.to },
+      })).data,
     onMutate: () => setError(null),
-    onError: async (err) => setError(await blobErrorMessage(err)),
+    onSuccess: (data) => setReport(data),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
 
-  const pendingFormat = exporter.isPending ? exporter.variables : null;
   const presetBtn = (active: boolean) =>
     active
       ? "bg-accent text-accent-fg shadow-card"
@@ -95,8 +80,8 @@ export default function ReportsPage() {
     <div className="max-w-3xl">
       <h1 className="font-display text-2xl font-semibold tracking-tight text-fg">Rapports</h1>
       <p className="mt-1.5 text-sm text-fg-muted">
-        Le compte de résultat de la période : recettes, dépenses et bénéfice net, avec le détail
-        et la répartition par catégorie.
+        Générez le compte de résultat de la période, prévisualisez-le dans l'app,
+        puis décidez : PDF, Excel, impression — ou rien.
       </p>
 
       {error && (
@@ -137,15 +122,29 @@ export default function ReportsPage() {
             : "Période invalide : la date de début doit précéder la date de fin."}
         </p>
 
-        <div className="mt-5 flex flex-wrap gap-3 border-t border-line pt-5">
-          <motion.button type="button" whileTap={{ scale: 0.98 }} disabled={!rangeValid || exporter.isPending} onClick={() => exporter.mutate("pdf")} className="btn btn-primary">
-            <FileText size={16} strokeWidth={2} />
-            {pendingFormat === "pdf" ? "Génération…" : "Télécharger le PDF"}
+        <div className="mt-5 border-t border-line pt-5">
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.98 }}
+            disabled={!rangeValid || generate.isPending}
+            onClick={() => generate.mutate()}
+            className="btn btn-primary"
+          >
+            {generate.isPending ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+                Calcul du rapport…
+              </>
+            ) : (
+              <>
+                <FileBarChart size={16} strokeWidth={2} /> Générer le rapport
+              </>
+            )}
           </motion.button>
-          <motion.button type="button" whileTap={{ scale: 0.98 }} disabled={!rangeValid || exporter.isPending} onClick={() => exporter.mutate("excel")} className="btn btn-ghost">
-            <FileSpreadsheet size={16} strokeWidth={2} />
-            {pendingFormat === "excel" ? "Génération…" : "Télécharger l'Excel"}
-          </motion.button>
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-fg-subtle">
+            <Eye size={13} strokeWidth={2} />
+            Rien n'est téléchargé à cette étape : vous verrez d'abord un aperçu fidèle.
+          </p>
         </div>
       </motion.section>
 
@@ -157,15 +156,19 @@ export default function ReportsPage() {
       >
         <h2 className="font-display text-sm font-semibold text-fg">Ce que contient le rapport</h2>
         <ul className="mt-3 space-y-2 text-sm text-fg-muted">
-          <li>• Synthèse <strong className="text-fg">Recettes · Dépenses · Bénéfice</strong> : recettes confirmées, dépenses approuvées, bénéfice net et marge.</li>
-          <li>• Détail des recettes et des dépenses : date, catégorie, auteur, source/client, montant et statut.</li>
-          <li>• Répartition par catégorie : réalisé vs objectif (recettes), consommé vs budget (dépenses).</li>
+          <li>• <strong className="text-fg">Section 1 — Bilan résumé</strong> : recettes, dépenses, bénéfice net et marge en évidence, répartition par catégorie (donuts + top 5). Tout tient sur une page.</li>
+          <li>• <strong className="text-fg">Section 2 — Bilan détaillé</strong> : pont financier, budget vs réalisé, évolution mensuelle, et le détail ligne à ligne des recettes et dépenses.</li>
+          <li>• Téléchargement au choix : rapport <strong className="text-fg">complet</strong> ou <strong className="text-fg">résumé seul</strong>, en PDF (graphiques inclus) ou Excel (graphiques natifs).</li>
         </ul>
-        <p className="mt-3 text-xs text-fg-subtle">
-          PDF : mise en page A4 paginée, prête à partager. Excel : cinq feuilles formatées
-          (Résumé, Recettes, Dépenses, Recettes/Dépenses par catégorie).
-        </p>
       </motion.section>
+
+      {report && (
+        <ReportPreview
+          data={report}
+          onClose={() => setReport(null)}
+          onDownloadError={() => undefined}
+        />
+      )}
     </div>
   );
 }

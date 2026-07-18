@@ -28,18 +28,19 @@ REVENUE_STATUS_LABELS = {
 
 
 def _collect(rows, cat_names, authors, status_labels, *, date_field, with_source=False):
-    """Agrège une liste de transactions en totaux par statut + lignes détaillées."""
+    """Agrège une liste de transactions en totaux par statut + lignes détaillées.
+    `consumed_by_cat` porte montant ET nombre d'opérations (tooltips/donuts)."""
     totals = {s: {"amount": 0.0, "count": 0} for s in status_labels}
-    consumed_by_cat: dict[str, float] = {}
+    consumed_by_cat: dict[str, dict] = {}
     detail = []
     for r in rows:
         amount = float(r["amount"])
         totals[r["status"]]["amount"] += amount
         totals[r["status"]]["count"] += 1
         if r["status"] == "approved":
-            consumed_by_cat[r["category_id"]] = (
-                consumed_by_cat.get(r["category_id"], 0.0) + amount
-            )
+            entry = consumed_by_cat.setdefault(r["category_id"], {"amount": 0.0, "count": 0})
+            entry["amount"] += amount
+            entry["count"] += 1
         row = {
             "date": r[date_field],
             "category_name": cat_names.get(r["category_id"], "—"),
@@ -56,12 +57,16 @@ def _collect(rows, cat_names, authors, status_labels, *, date_field, with_source
 
 
 def _breakdown(categories, consumed_by_cat):
+    """Répartition par catégorie — id + count inclus : c'est le MÊME payload qui
+    nourrit l'aperçu React, le PDF et l'Excel (source unique, zéro divergence)."""
     result = sorted(
         (
             {
+                "id": c["id"],
                 "name": c["name"],
                 "planned_budget": float(c["planned_budget"]),
-                "consumed": round(consumed_by_cat.get(c["id"], 0.0), 2),
+                "consumed": round(consumed_by_cat.get(c["id"], {}).get("amount", 0.0), 2),
+                "count": consumed_by_cat.get(c["id"], {}).get("count", 0),
             }
             for c in categories
         ),
@@ -73,6 +78,43 @@ def _breakdown(categories, consumed_by_cat):
             item["consumed"] / item["planned_budget"] if item["planned_budget"] > 0 else None
         )
     return result
+
+
+def _month_keys(date_from: date, date_to: date, cap: int = 36) -> list[str]:
+    keys = []
+    year, month = date_from.year, date_from.month
+    while (year, month) <= (date_to.year, date_to.month) and len(keys) < cap:
+        keys.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month == 13:
+            month, year = 1, year + 1
+    return keys
+
+
+def _monthly_series(expenses, revenues, date_from: date, date_to: date) -> list[dict]:
+    """Recettes/dépenses approuvées par mois de la période (zone chart du rapport)."""
+    keys = _month_keys(date_from, date_to)
+    exp = {k: 0.0 for k in keys}
+    rev = {k: 0.0 for k in keys}
+    for e in expenses:
+        if e["status"] == "approved":
+            k = str(e["expense_date"])[:7]
+            if k in exp:
+                exp[k] += float(e["amount"])
+    for r in revenues:
+        if r["status"] == "approved":
+            k = str(r["revenue_date"])[:7]
+            if k in rev:
+                rev[k] += float(r["amount"])
+    return [
+        {
+            "month": k,
+            "revenues": round(rev[k], 2),
+            "expenses": round(exp[k], 2),
+            "net": round(rev[k] - exp[k], 2),
+        }
+        for k in keys
+    ]
 
 
 def get_report_data(company_id: str, date_from: date, date_to: date) -> dict:
@@ -167,4 +209,6 @@ def get_report_data(company_id: str, date_from: date, date_to: date) -> dict:
         # --- Bénéfice ---
         "net_profit": net_profit,
         "margin": margin,
+        # --- Séries pour les graphiques (aperçu, PDF, Excel) ---
+        "monthly": _monthly_series(expenses, revenues, date_from, date_to),
     }

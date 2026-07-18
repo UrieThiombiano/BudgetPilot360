@@ -84,7 +84,8 @@ def test_export_excel(client, as_admin, monkeypatch, silence_audit):
 
     wb = load_workbook(io.BytesIO(resp.content))
     assert wb.sheetnames == [
-        "Résumé", "Recettes", "Dépenses", "Recettes par catégorie", "Dépenses par catégorie"
+        "Résumé", "Graphiques", "Recettes", "Dépenses",
+        "Recettes par catégorie", "Dépenses par catégorie",
     ]
 
     resume = wb["Résumé"]
@@ -114,6 +115,46 @@ def test_export_excel(client, as_admin, monkeypatch, silence_audit):
     assert exp_cats["A2"].value == "Transport"  # trié par consommé décroissant
     assert exp_cats["C2"].value == 100.0  # seules les approuvées comptent
     assert exp_cats["D3"].value == "—"  # budget prévu à 0 → pas de ratio
+
+
+def test_export_excel_summary_scope(client, as_admin, monkeypatch, silence_audit):
+    """`scope=summary` : uniquement Résumé + Graphiques (bilan pour lecteur pressé)."""
+    _mock_reports_client(monkeypatch)
+
+    resp = client.get(f"/reports/export?format=excel&scope=summary&{PERIOD}")
+
+    assert resp.status_code == 200
+    assert "_resume.xlsx" in resp.headers["content-disposition"]
+    wb = load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == ["Résumé", "Graphiques"]
+
+
+def test_report_data_endpoint(client, as_admin, monkeypatch, silence_audit):
+    """GET /reports/data : la source unique du flux Générer → Aperçu → Décider."""
+    _mock_reports_client(monkeypatch)
+
+    resp = client.get(f"/reports/data?{PERIOD}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["company_name"] == "Acme"
+    assert body["total_revenue"] == 400.0
+    assert body["total_approved"] == 150.0
+    assert body["net_profit"] == 250.0
+    # Répartitions avec id + count (mêmes couleurs par catégorie côté front)
+    transport = next(c for c in body["breakdown"] if c["name"] == "Transport")
+    assert transport["id"] == "c1" and transport["count"] == 1
+    # Série mensuelle de la période (zone chart de l'aperçu)
+    assert body["monthly"] == [
+        {"month": "2026-07", "revenues": 400.0, "expenses": 150.0, "net": 250.0}
+    ]
+    assert any(c["action"] == "report.generated" for c in silence_audit)
+
+
+def test_report_data_forbidden_for_user(client, as_user, monkeypatch):
+    mock_client = _mock_reports_client(monkeypatch)
+    assert client.get(f"/reports/data?{PERIOD}").status_code == 403
+    mock_client.table.assert_not_called()
 
 
 def test_export_pdf(client, as_admin, monkeypatch, silence_audit):

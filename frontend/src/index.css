@@ -176,3 +176,44 @@
     background-color: var(--danger-soft);
   }
 }
+
+/* ---------- Impression du rapport (aperçu ReportPreview) ---------- */
+@media print {
+  /* N'imprimer QUE la zone du rapport : tout est masqué, puis la zone est
+     rendue visible et repositionnée en flux normal. */
+  body * {
+    visibility: hidden;
+  }
+  .report-print-area,
+  .report-print-area * {
+    visibility: visible;
+  }
+  .report-print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* Fond blanc forcé même si l'app est en mode sombre au moment d'imprimer */
+  body,
+  .report-print-area .card {
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+  .report-print-area .card {
+    border: 1px solid #e4e4ec;
+  }
+  /* Sauts de page : jamais couper un graphique ou un tableau au milieu */
+  .print-section {
+    page-break-before: auto;
+  }
+  .print-section + .print-section {
+    page-break-before: always;
+  }
+  .print-block {
+    page-break-inside: avoid;
+  }
+}
