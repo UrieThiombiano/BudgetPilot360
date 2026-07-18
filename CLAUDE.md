@@ -15,8 +15,8 @@ Tu es le CTO virtuel de ce projet. Avant toute fonctionnalité non triviale : an
 | Rôle | Portée | Peut faire |
 |---|---|---|
 | **super_admin** (Pukri) | Toute la plateforme | Gérer entreprises clientes, abonnements/licences, stats globales |
-| **admin** | 1 par entreprise | Config entreprise, budget annuel, catégories, budgets par catégorie, créer jusqu'à 3 utilisateurs, approuver/rejeter dépenses, dashboards, export, IA |
-| **user** | Max 3 par entreprise | Créer une dépense, joindre facture, commenter, voir ses propres dépenses uniquement |
+| **admin** | 1 principal (`companies.owner_id`) + 1 adjoint max par entreprise | Config entreprise, budget annuel, catégories, budgets par catégorie, inviter des collaborateurs, approuver/rejeter dépenses, dashboards, export, IA. Seul le PRINCIPAL nomme/révoque l'adjoint (co-fondateurs, sql/010). L'adjoint garde son siège dans la limite des 3. |
+| **user** | Max 3 collaborateurs par entreprise (adjoint compris) | Créer une dépense/recette, joindre facture, commenter, voir ses propres dépenses uniquement. Sa « Fonction » (obligatoire à l'invitation) sert de libellé de rôle. |
 
 ## Workflow métier central
 

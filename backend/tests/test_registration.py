@@ -13,6 +13,7 @@ SUBMIT_PAYLOAD = {
     "company_name": "Faso Distribution SARL",
     "industry": "Commerce",
     "contact_name": "Awa Ouédraogo",
+    "job_title": "Directrice Générale",
     "email": "direction@faso-distribution.bf",
     "phone": "+226 70 00 00 00",
     "city": "Ouagadougou",
@@ -117,6 +118,15 @@ def test_submit_validates_payload(client, monkeypatch):
     assert resp.status_code == 422
 
 
+def test_submit_requires_job_title(client, monkeypatch):
+    """Le rôle du demandeur dans son entreprise est OBLIGATOIRE : c'est son
+    libellé affiché partout (à la place de « Admin »)."""
+    _mock_reg_client(monkeypatch)
+
+    without_job = {k: v for k, v in SUBMIT_PAYLOAD.items() if k != "job_title"}
+    assert client.post("/registration/requests", json=without_job).status_code == 422
+
+
 # --- Consultation super_admin ---
 
 
@@ -217,10 +227,14 @@ def test_approve_creates_tenant_and_invites_owner(client, as_super_admin, monkey
     assert "password" not in invite_args.args[1]
     assert invite_args.args[1]["redirect_to"].endswith("/set-password")
 
-    # 3) profil owner = admin du nouveau tenant
+    # 3) profil owner = admin du nouveau tenant, avec son rôle d'entreprise
+    #    (job_title) et le marquage propriétaire (companies.owner_id)
     profile_payload = mock_client.tables["profiles"].upsert.call_args.args[0]
     assert profile_payload["role"] == "admin"
     assert profile_payload["company_id"] == "co-new"
+    assert profile_payload["job_title"] == "Directrice Générale"
+    owner_update = mock_client.tables["companies"].update.call_args.args[0]
+    assert owner_update == {"owner_id": "owner-id"}
 
     # 4) demande approuvée et rattachée + audit
     update_payload = mock_client.tables["registration_requests"].update.call_args.args[0]

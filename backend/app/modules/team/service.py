@@ -76,18 +76,29 @@ def list_members(company_id: str) -> list[dict]:
     return resp.data or []
 
 
-def count_users(company_id: str) -> int:
-    """Nombre d'utilisateurs ACTIFS (role=user, non retirés) : base de la limite de 3."""
+def get_owner_id(company_id: str) -> str | None:
+    """Administrateur principal (companies.owner_id, sql/010). None si la
+    migration n'est pas encore passée — les features adjoint se désactivent
+    alors proprement (fallback sur l'ancien comportement)."""
     client = get_service_client()
-    resp = (
-        client.table("profiles")
-        .select("id", count="exact")
-        .eq("company_id", company_id)
-        .eq("role", "user")
-        .is_("removed_at", "null")
-        .execute()
+    resp = client.table("companies").select("owner_id").eq("id", company_id).execute()
+    rows = resp.data or []
+    return rows[0].get("owner_id") if rows else None
+
+
+def count_collaborators(company_id: str, owner_id: str | None = None) -> int:
+    """Nombre de collaborateurs ACTIFS comptant dans la limite de 3 :
+    les `user` + l'admin adjoint (l'adjoint GARDE son siège — décision produit).
+    Le propriétaire (admin principal) ne compte jamais."""
+    if owner_id is None:
+        owner_id = get_owner_id(company_id)
+    members = list_members(company_id)
+    if owner_id is None:
+        # Migration 010 pas encore passée : ancien comportement (users seuls).
+        return sum(1 for m in members if m["role"] == "user")
+    return sum(
+        1 for m in members if m["role"] in ("user", "admin") and m["id"] != owner_id
     )
-    return resp.count or 0
 
 
 def _activation_redirect_url() -> str:
@@ -104,14 +115,14 @@ def invite_member(
     last_name: str,
     job_title: str = "",
 ) -> dict:
-    if count_users(admin.company_id) >= MAX_USERS_PER_COMPANY:
+    if count_collaborators(admin.company_id) >= MAX_USERS_PER_COMPANY:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Limite atteinte : votre abonnement permet au maximum "
-                f"{MAX_USERS_PER_COMPANY} utilisateurs en plus de l'admin. "
-                f"Supprimez un utilisateur existant ou contactez Pukri AI Systems "
-                f"pour faire évoluer votre offre."
+                f"{MAX_USERS_PER_COMPANY} collaborateurs (adjoint compris) en plus "
+                f"de l'administrateur principal. Retirez un collaborateur existant "
+                f"ou contactez Pukri AI Systems pour faire évoluer votre offre."
             ),
         )
 
@@ -206,7 +217,10 @@ def remove_member(admin: CurrentUser, member_id: str) -> None:
     if target["role"] != "user":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Seul un utilisateur peut être retiré (pas un administrateur).",
+            detail=(
+                "Seul un utilisateur peut être retiré (pas un administrateur). "
+                "Retirez d'abord le rôle d'adjoint le cas échéant."
+            ),
         )
 
     if target["removed_at"] is not None:
@@ -238,3 +252,96 @@ def remove_member(admin: CurrentUser, member_id: str) -> None:
         action="team.member_removed",
         details={"member_id": member_id, "email": target.get("email")},
     )
+
+
+def set_member_role(actor: CurrentUser, member_id: str, new_role: str) -> dict:
+    """Nomme un admin adjoint (`user` → `admin`) ou révoque ce rôle
+    (`admin` → `user`). Pensé pour les co-fondateurs.
+
+    RBAC (vérifié ICI, côté backend) :
+    - réservé au PROPRIÉTAIRE (companies.owner_id) de l'entreprise — un adjoint
+      ne peut pas gérer les rôles ; le super_admin peut tout ;
+    - la cible doit être active et dans l'entreprise de l'acteur (404 sinon,
+      sans divulguer l'existence d'un profil d'une autre entreprise) ;
+    - le rôle du propriétaire lui-même est intouchable ;
+    - 1 SEUL adjoint par entreprise (décision produit) ;
+    - l'adjoint garde son siège dans la limite des 3 collaborateurs, donc la
+      rétrogradation est toujours possible (aucun blocage de quota).
+    """
+    client = get_service_client()
+    resp = (
+        client.table("profiles")
+        .select("id, company_id, role, removed_at, email, full_name, job_title, created_at")
+        .eq("id", member_id)
+        .execute()
+    )
+    rows = resp.data or []
+    target = rows[0] if rows else None
+
+    is_super = actor.role == "super_admin"
+    if target is None or (not is_super and target["company_id"] != actor.company_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur introuvable."
+        )
+
+    owner_id = get_owner_id(target["company_id"])
+    if owner_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Administrateur principal non défini pour cette entreprise "
+                "(migration sql/010 à exécuter)."
+            ),
+        )
+    if not is_super and actor.id != owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Seul l'administrateur principal peut nommer ou révoquer un adjoint.",
+        )
+    if target["id"] == owner_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le rôle de l'administrateur principal ne peut pas être modifié.",
+        )
+    if target["removed_at"] is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet utilisateur a été retiré de l'entreprise.",
+        )
+    if target["role"] not in ("user", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ce compte ne peut pas changer de rôle.",
+        )
+    if target["role"] == new_role:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Ce membre a déjà ce rôle."
+        )
+
+    if new_role == "admin":
+        members = list_members(target["company_id"])
+        has_adjoint = any(
+            m["role"] == "admin" and m["id"] != owner_id for m in members
+        )
+        if has_adjoint:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Un seul admin adjoint par entreprise : révoquez d'abord "
+                    "l'adjoint actuel."
+                ),
+            )
+
+    client.table("profiles").update({"role": new_role}).eq("id", member_id).execute()
+
+    audit.log_action(
+        company_id=target["company_id"],
+        actor_id=actor.id,
+        action="team.member_role_changed",
+        details={
+            "member_id": member_id,
+            "email": target.get("email"),
+            "new_role": new_role,
+        },
+    )
+    return {**target, "role": new_role}

@@ -33,22 +33,34 @@ INVITE_PAYLOAD = {
 }
 
 
-def _mock_team_client(monkeypatch, *, members=None, user_count=0, invite_error=None):
+def _mock_team_client(monkeypatch, *, members=None, user_count=0, invite_error=None, owner_id="a1"):
     """Chaînes utilisées par le service :
-    - liste :  table().select().eq().order().execute()  → .data
-    - compte : table().select().eq().eq().execute()     → .count
+    - liste :  table("profiles").select().eq().is_().order().execute() → .data
+      (le comptage des collaborateurs se fait désormais sur cette liste)
+    - owner :  table("companies").select().eq().execute() → .data[0]["owner_id"]
     - invitation : auth.admin.invite_user_by_email
+    Si `members` est omis, `user_count` utilisateurs actifs sont générés.
     """
+    if members is None:
+        members = [
+            {
+                "id": f"u{i}",
+                "email": f"user{i}@acme-corp.fr",
+                "full_name": f"User {i}",
+                "job_title": "Comptable",
+                "role": "user",
+                "created_at": "2026-07-02T10:00:00+00:00",
+            }
+            for i in range(user_count)
+        ]
     mock_client = MagicMock()
     after_first_eq = mock_client.table.return_value.select.return_value.eq.return_value
     # list_members : .eq(company_id).is_(removed_at, null).order(created_at).execute()
     after_first_eq.is_.return_value.order.return_value.execute.return_value = (
-        SimpleNamespace(data=members or [])
+        SimpleNamespace(data=members)
     )
-    # count_users : .eq(company_id).eq(role).is_(removed_at, null).execute()
-    after_first_eq.eq.return_value.is_.return_value.execute.return_value = SimpleNamespace(
-        count=user_count, data=[]
-    )
+    # get_owner_id : table("companies").select("owner_id").eq(id).execute()
+    after_first_eq.execute.return_value = SimpleNamespace(data=[{"owner_id": owner_id}])
 
     if invite_error is not None:
         mock_client.auth.admin.invite_user_by_email.side_effect = invite_error
@@ -72,6 +84,7 @@ def test_list_members(client, as_admin, monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
     assert len(body["members"]) == 2
+    assert body["owner_id"] == "a1"  # l'admin principal est identifié
     assert body["user_count"] == 1
     assert body["max_users"] == 3
     assert body["can_add_user"] is True
@@ -218,6 +231,18 @@ def test_invite_requires_names_and_valid_email(client, as_admin, monkeypatch):
     )
 
 
+def test_invite_requires_job_title(client, as_admin, monkeypatch):
+    """La fonction est OBLIGATOIRE : elle sert de libellé de rôle dans l'équipe."""
+    _mock_team_client(monkeypatch, user_count=0)
+
+    without_job = {k: v for k, v in INVITE_PAYLOAD.items() if k != "job_title"}
+    assert client.post("/team/members", json=without_job).status_code == 422
+    assert (
+        client.post("/team/members", json={**INVITE_PAYLOAD, "job_title": ""}).status_code
+        == 422
+    )
+
+
 # --- Retrait (désactivation douce) d'un utilisateur ---
 
 def _mock_remove_client(monkeypatch, *, target):
@@ -333,3 +358,153 @@ def test_super_admin_can_remove_across_companies(client, as_super_admin, monkeyp
 
     assert resp.status_code == 204
     mock_client.auth.admin.update_user_by_id.assert_called_once()
+
+
+# --- Admin adjoint : nomination / révocation (réservé au propriétaire) ---
+
+def _mock_role_client(monkeypatch, *, target, owner_id, members=None):
+    """Mocke set_member_role avec des mocks distincts par table :
+    - profiles : fetch cible (.select().eq().execute()),
+                 liste active (.select().eq().is_().order().execute()),
+                 update rôle (.update().eq().execute())
+    - companies : owner (.select().eq().execute())
+    """
+    mock_client = MagicMock()
+    profiles = MagicMock()
+    companies = MagicMock()
+    mock_client.table.side_effect = lambda name: {
+        "profiles": profiles,
+        "companies": companies,
+    }[name]
+    profiles.select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[target] if target else []
+    )
+    profiles.select.return_value.eq.return_value.is_.return_value.order.return_value.execute.return_value = SimpleNamespace(
+        data=members or []
+    )
+    companies.select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[{"owner_id": owner_id}]
+    )
+    profiles.update.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
+    monkeypatch.setattr(team_service, "get_service_client", lambda: mock_client)
+    return mock_client, profiles
+
+
+def _role_target(as_admin, **over):
+    base = {
+        "id": "u1",
+        "company_id": as_admin.company_id,
+        "role": "user",
+        "removed_at": None,
+        "email": "u1@acme-corp.fr",
+        "full_name": "Jean User",
+        "job_title": "Comptable",
+        "created_at": "2026-07-02T10:00:00+00:00",
+    }
+    base.update(over)
+    return base
+
+
+def test_owner_promotes_user_to_adjoint(client, as_admin, monkeypatch, silence_audit):
+    """Le propriétaire nomme un de ses users admin adjoint (co-fondateurs)."""
+    target = _role_target(as_admin)
+    _, profiles = _mock_role_client(
+        monkeypatch,
+        target=target,
+        owner_id=as_admin.id,
+        members=[{"id": as_admin.id, "role": "admin"}, {"id": "u1", "role": "user"}],
+    )
+
+    resp = client.patch("/team/members/u1/role", json={"role": "admin"})
+
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "admin"
+    profiles.update.assert_called_once_with({"role": "admin"})
+    profiles.update.return_value.eq.assert_called_with("id", "u1")
+    assert any(c["action"] == "team.member_role_changed" for c in silence_audit)
+
+
+def test_promote_forbidden_for_non_owner_admin(client, as_admin, monkeypatch):
+    """Un adjoint (admin non propriétaire) ne peut PAS gérer les rôles."""
+    _, profiles = _mock_role_client(
+        monkeypatch, target=_role_target(as_admin), owner_id="someone-else"
+    )
+
+    resp = client.patch("/team/members/u1/role", json={"role": "admin"})
+
+    assert resp.status_code == 403
+    assert "principal" in resp.json()["detail"]
+    profiles.update.assert_not_called()
+
+
+def test_promote_blocked_when_adjoint_already_exists(client, as_admin, monkeypatch):
+    """1 seul adjoint par entreprise — décision produit."""
+    _, profiles = _mock_role_client(
+        monkeypatch,
+        target=_role_target(as_admin),
+        owner_id=as_admin.id,
+        members=[
+            {"id": as_admin.id, "role": "admin"},
+            {"id": "a2", "role": "admin"},  # adjoint déjà en place
+            {"id": "u1", "role": "user"},
+        ],
+    )
+
+    resp = client.patch("/team/members/u1/role", json={"role": "admin"})
+
+    assert resp.status_code == 409
+    assert "seul" in resp.json()["detail"].lower()
+    profiles.update.assert_not_called()
+
+
+def test_owner_demotes_adjoint(client, as_admin, monkeypatch, silence_audit):
+    """La révocation adjoint → user est toujours possible (il garde son siège)."""
+    _, profiles = _mock_role_client(
+        monkeypatch,
+        target=_role_target(as_admin, id="a2", role="admin"),
+        owner_id=as_admin.id,
+    )
+
+    resp = client.patch("/team/members/a2/role", json={"role": "user"})
+
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "user"
+    profiles.update.assert_called_once_with({"role": "user"})
+
+
+def test_owner_role_is_untouchable(client, as_admin, monkeypatch):
+    _, profiles = _mock_role_client(
+        monkeypatch,
+        target=_role_target(as_admin, id=as_admin.id, role="admin"),
+        owner_id=as_admin.id,
+    )
+
+    resp = client.patch(f"/team/members/{as_admin.id}/role", json={"role": "user"})
+
+    assert resp.status_code == 400
+    assert "principal" in resp.json()["detail"]
+    profiles.update.assert_not_called()
+
+
+def test_set_role_forbidden_for_simple_user(client, as_user, monkeypatch):
+    _, profiles = _mock_role_client(
+        monkeypatch, target=_role_target(as_user), owner_id="whoever"
+    )
+
+    resp = client.patch("/team/members/u1/role", json={"role": "admin"})
+
+    assert resp.status_code == 403
+    profiles.update.assert_not_called()
+
+
+def test_set_role_other_company_is_404(client, as_admin, monkeypatch):
+    _, profiles = _mock_role_client(
+        monkeypatch,
+        target=_role_target(as_admin, company_id="99999999-9999-9999-9999-999999999999"),
+        owner_id=as_admin.id,
+    )
+
+    resp = client.patch("/team/members/u1/role", json={"role": "admin"})
+
+    assert resp.status_code == 404
+    profiles.update.assert_not_called()

@@ -12,6 +12,9 @@ class RegistrationRequestCreate(BaseModel):
     company_name: str = Field(min_length=2, max_length=120)
     industry: str = Field(min_length=2, max_length=80)
     contact_name: str = Field(min_length=2, max_length=120)
+    # Rôle du demandeur dans SON entreprise (ex : Directeur Général, Gérante) —
+    # obligatoire : il devient son libellé affiché partout (profiles.job_title).
+    job_title: str = Field(min_length=2, max_length=80)
     email: EmailStr
     phone: str = Field(min_length=6, max_length=30)
     city: str = Field(min_length=2, max_length=80)
@@ -24,6 +27,7 @@ class RegistrationRequestOut(BaseModel):
     company_name: str
     industry: str
     contact_name: str
+    job_title: str | None = None  # absent sur les demandes antérieures à sql/011
     email: str
     phone: str
     city: str

@@ -61,6 +61,9 @@ class CurrentUser:
     email: str | None
     company_id: str | None
     role: Role
+    # Rôle dans l'entreprise (ex : Directeur Général, Comptable) — libellé
+    # affiché partout à la place du rôle technique admin/user.
+    job_title: str | None = None
 
 
 async def get_current_user(
@@ -84,7 +87,7 @@ async def get_current_user(
     client = get_service_client()
     resp = (
         client.table("profiles")
-        .select("company_id, role")
+        .select("company_id, role, job_title")
         .eq("id", user_id)
         .execute()
     )
@@ -99,6 +102,7 @@ async def get_current_user(
         email=payload.get("email"),
         company_id=profile["company_id"],
         role=profile["role"],
+        job_title=profile.get("job_title"),
     )
 
 

@@ -16,6 +16,7 @@ export default function RequestAccountPage() {
     company_name: "",
     industry: "",
     contact_name: "",
+    job_title: "",
     email: "",
     phone: "",
     city: "",
@@ -100,10 +101,15 @@ export default function RequestAccountPage() {
                     <input id="reqContact" required minLength={2} maxLength={120} value={form.contact_name} onChange={set("contact_name")} className="field" placeholder="Awa Ouédraogo" />
                   </div>
                   <div>
-                    <label htmlFor="reqEmail" className={labelClass}>Email du responsable</label>
-                    <input id="reqEmail" type="email" required value={form.email} onChange={set("email")} className="field" placeholder="vous@entreprise.com" />
-                    <p className="mt-1 text-xs text-fg-subtle">Un email personnel (Gmail, Yahoo…) convient parfaitement.</p>
+                    <label htmlFor="reqJobTitle" className={labelClass}>Votre rôle dans l'entreprise</label>
+                    <input id="reqJobTitle" required minLength={2} maxLength={80} value={form.job_title} onChange={set("job_title")} className="field" placeholder="Directeur Général, Gérante…" />
+                    <p className="mt-1 text-xs text-fg-subtle">C'est ainsi que vous serez désigné dans l'application.</p>
                   </div>
+                </div>
+                <div>
+                  <label htmlFor="reqEmail" className={labelClass}>Email du responsable</label>
+                  <input id="reqEmail" type="email" required value={form.email} onChange={set("email")} className="field" placeholder="vous@entreprise.com" />
+                  <p className="mt-1 text-xs text-fg-subtle">Un email personnel (Gmail, Yahoo…) convient parfaitement.</p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div>

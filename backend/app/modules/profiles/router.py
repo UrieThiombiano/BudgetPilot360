@@ -16,12 +16,14 @@ router = APIRouter()
 
 @router.get("/me")
 async def get_my_profile(user: CurrentUser = Depends(get_current_user)):
-    """Retourne le profil applicatif de l'utilisateur courant (id, company_id, role)."""
+    """Retourne le profil applicatif de l'utilisateur courant
+    (id, company_id, role technique, job_title = rôle affiché)."""
     return {
         "id": user.id,
         "email": user.email,
         "company_id": user.company_id,
         "role": user.role,
+        "job_title": user.job_title,
     }
 
 

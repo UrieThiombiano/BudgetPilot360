@@ -32,6 +32,7 @@ interface RegistrationRequest {
   company_name: string;
   industry: string;
   contact_name: string;
+  job_title: string | null;
   email: string;
   phone: string;
   city: string;
@@ -265,7 +266,10 @@ export default function PlatformPage() {
                   <p className="font-medium text-fg">
                     {r.company_name} <span className="text-sm font-normal text-fg-muted">· {r.industry} · {r.city}</span>
                   </p>
-                  <p className="text-sm text-fg-muted">{r.contact_name} — {r.email} · demande du {frDate(r.created_at)}</p>
+                  <p className="text-sm text-fg-muted">
+                    {r.contact_name}
+                    {r.job_title && <span className="text-fg-subtle"> ({r.job_title})</span>} — {r.email} · demande du {frDate(r.created_at)}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <RequestStatusBadge status={r.status} />

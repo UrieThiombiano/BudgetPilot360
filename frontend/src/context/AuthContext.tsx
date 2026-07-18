@@ -17,6 +17,9 @@ export interface Profile {
   email: string | null;
   company_id: string | null;
   role: Role;
+  /** Rôle dans l'entreprise (ex : Directeur Général) — libellé affiché
+   * partout à la place du rôle technique admin/user. */
+  job_title?: string | null;
 }
 
 interface AuthContextValue {

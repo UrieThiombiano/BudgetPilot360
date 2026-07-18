@@ -51,8 +51,8 @@ function SidebarContent({
     ...(hasCompany
       ? [
           { to: "/", icon: LayoutDashboard, label: "Tableau de bord", end: true },
-          { to: "/expenses", icon: Receipt, label: "Mes dépenses" },
-          { to: "/revenues", icon: HandCoins, label: "Mes recettes" },
+          { to: "/expenses", icon: Receipt, label: isAdmin ? "Dépenses" : "Mes dépenses" },
+          { to: "/revenues", icon: HandCoins, label: isAdmin ? "Recettes" : "Mes recettes" },
           { to: "/budget", icon: Wallet, label: "Budget & catégories" },
           ...(isAdmin
             ? [
@@ -237,11 +237,11 @@ export default function Layout({ children }: { children: ReactNode }) {
             <div className="hidden pl-1 text-right sm:block">
               <p className="text-sm font-medium text-fg">{profile?.email}</p>
               <p className="text-xs capitalize text-fg-subtle">
+                {/* Chacun est désigné par son rôle dans l'entreprise (job_title). */}
                 {profile?.role === "super_admin"
                   ? "Super administrateur"
-                  : profile?.role === "admin"
-                    ? "Administrateur"
-                    : "Utilisateur"}
+                  : profile?.job_title ||
+                    (profile?.role === "admin" ? "Administrateur" : "Utilisateur")}
               </p>
             </div>
           </div>

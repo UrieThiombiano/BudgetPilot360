@@ -62,6 +62,7 @@ def submit_request(payload) -> dict:
                 "company_name": payload.company_name.strip(),
                 "industry": payload.industry.strip(),
                 "contact_name": payload.contact_name.strip(),
+                "job_title": payload.job_title.strip(),
                 "email": payload.email,
                 "phone": payload.phone.strip(),
                 "city": payload.city.strip(),
@@ -183,7 +184,10 @@ def approve_request(
         invited = client.auth.admin.invite_user_by_email(
             request["email"],
             {
-                "data": {"full_name": request["contact_name"]},
+                "data": {
+                    "full_name": request["contact_name"],
+                    "job_title": request.get("job_title") or "",
+                },
                 "redirect_to": _activation_redirect_url(),
             },
         )
@@ -196,16 +200,22 @@ def approve_request(
 
     owner_id = str(invited.user.id)
 
-    # 3) Rattachement du profil : Organization Owner = rôle admin du tenant
+    # 3) Rattachement du profil : Organization Owner = rôle admin du tenant,
+    #    et PROPRIÉTAIRE de l'entreprise (companies.owner_id) — seul habilité
+    #    à nommer un admin adjoint (sql/010).
     try:
         client.table("profiles").upsert(
             {
                 "id": owner_id,
                 "email": request["email"],
                 "full_name": request["contact_name"],
+                "job_title": request.get("job_title") or None,
                 "company_id": company["id"],
                 "role": "admin",
             }
+        ).execute()
+        client.table("companies").update({"owner_id": owner_id}).eq(
+            "id", company["id"]
         ).execute()
     except Exception as exc:
         client.auth.admin.delete_user(owner_id)
