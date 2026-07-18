@@ -67,6 +67,7 @@ def submit_request(payload) -> dict:
                 "phone": payload.phone.strip(),
                 "city": payload.city.strip(),
                 "employees_count": payload.employees_count,
+                "referral_source": (payload.referral_source or "").strip() or None,
                 "message": (payload.message or "").strip() or None,
                 "status": "pending",
             }

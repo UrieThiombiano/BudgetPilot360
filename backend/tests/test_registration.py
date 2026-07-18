@@ -118,6 +118,25 @@ def test_submit_validates_payload(client, monkeypatch):
     assert resp.status_code == 422
 
 
+def test_submit_stores_referral_source(client, monkeypatch):
+    """Le canal d'acquisition (facultatif) est stocké au dépôt de la demande."""
+    mock_client = _mock_reg_client(monkeypatch)
+
+    resp = client.post(
+        "/registration/requests",
+        json={**SUBMIT_PAYLOAD, "referral_source": "Bouche-à-oreille"},
+    )
+
+    assert resp.status_code == 201
+    insert_payload = mock_client.tables["registration_requests"].insert.call_args.args[0]
+    assert insert_payload["referral_source"] == "Bouche-à-oreille"
+
+    # Sans canal : null, jamais de chaîne vide
+    client.post("/registration/requests", json=SUBMIT_PAYLOAD)
+    insert_payload = mock_client.tables["registration_requests"].insert.call_args.args[0]
+    assert insert_payload["referral_source"] is None
+
+
 def test_submit_requires_job_title(client, monkeypatch):
     """Le rôle du demandeur dans son entreprise est OBLIGATOIRE : c'est son
     libellé affiché partout (à la place de « Admin »)."""

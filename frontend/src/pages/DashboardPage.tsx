@@ -29,6 +29,7 @@ import type { ComponentType } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useIsDark } from "../hooks/useTheme";
+import { chartColors } from "../lib/chartTheme";
 import { CardSkeleton, ErrorBanner, Skeleton } from "../components/ui";
 import { compactFcfa, fcfa } from "../lib/format";
 
@@ -76,21 +77,6 @@ const monthFull = (key: string) => {
   const [y, m] = key.split("-").map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 };
-
-/* Couleurs des graphiques, alignées sur les tokens (indigo accent + vert recette). */
-function chartColors(dark: boolean) {
-  return dark
-    ? {
-        revenue: "#34d399", expense: "#818cf8", net: "#fbbf24",
-        grid: "#272635", axisLine: "#353349", muted: "#a2a1b6", surface: "#14131d",
-        cursor: "rgba(129,140,248,0.10)",
-      }
-    : {
-        revenue: "#059669", expense: "#6366f1", net: "#d97706",
-        grid: "#e5e5ef", axisLine: "#d5d5e4", muted: "#56556b", surface: "#ffffff",
-        cursor: "rgba(79,70,229,0.07)",
-      };
-}
 
 const container: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.05 } } };
 const item: Variants = {

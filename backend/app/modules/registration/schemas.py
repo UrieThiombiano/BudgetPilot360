@@ -19,6 +19,9 @@ class RegistrationRequestCreate(BaseModel):
     phone: str = Field(min_length=6, max_length=30)
     city: str = Field(min_length=2, max_length=80)
     employees_count: int | None = Field(default=None, ge=1, le=100_000)
+    # Canal d'acquisition (« Comment nous avez-vous connu ? ») — facultatif,
+    # agrégé dans l'espace Pukri pour piloter le marketing.
+    referral_source: str | None = Field(default=None, max_length=80)
     message: str | None = Field(default=None, max_length=1000)
 
 
@@ -32,6 +35,7 @@ class RegistrationRequestOut(BaseModel):
     phone: str
     city: str
     employees_count: int | None
+    referral_source: str | None = None  # absent sur les demandes antérieures à sql/012
     message: str | None
     status: Literal["pending", "approved", "rejected"]
     plan: str | None

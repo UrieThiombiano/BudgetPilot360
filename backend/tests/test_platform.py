@@ -7,27 +7,36 @@ from unittest.mock import MagicMock
 import app.modules.platform.service as platform_service
 
 COMPANIES = [
-    {"id": "co1", "name": "Acme", "created_at": "2026-07-01T10:00:00+00:00", "subscription_status": "active"},
-    {"id": "co2", "name": "Globex", "created_at": "2026-06-01T10:00:00+00:00", "subscription_status": "suspended"},
+    {"id": "co1", "name": "Acme", "created_at": "2026-07-01T10:00:00+00:00", "subscription_status": "active", "owner_id": "a1"},
+    {"id": "co2", "name": "Globex", "created_at": "2026-06-01T10:00:00+00:00", "subscription_status": "suspended", "owner_id": "a4"},
 ]
 PROFILES = [
-    {"company_id": "co1", "role": "admin"},
-    {"company_id": "co1", "role": "user"},
-    {"company_id": "co1", "role": "user"},
-    {"company_id": "co2", "role": "admin"},
-    {"company_id": None, "role": "super_admin"},  # Pukri, hors tenants
+    {"id": "a1", "company_id": "co1", "role": "admin", "removed_at": None},  # propriétaire Acme
+    {"id": "u1", "company_id": "co1", "role": "user", "removed_at": None},
+    {"id": "u2", "company_id": "co1", "role": "user", "removed_at": None},
+    {"id": "a4", "company_id": "co2", "role": "admin", "removed_at": None},  # propriétaire Globex
+    {"id": "sa", "company_id": None, "role": "super_admin", "removed_at": None},  # Pukri, hors tenants
 ]
 EXPENSES = [
-    {"amount": "100.00", "status": "approved"},
-    {"amount": "50.00", "status": "approved"},
-    {"amount": "999.00", "status": "pending"},
-    {"amount": "20.00", "status": "rejected"},
+    {"amount": "100.00", "status": "approved", "company_id": "co1", "created_at": "2026-07-15T09:00:00+00:00"},
+    {"amount": "50.00", "status": "approved", "company_id": "co1", "created_at": "2026-07-17T09:00:00+00:00"},
+    {"amount": "999.00", "status": "pending", "company_id": "co2", "created_at": "2026-05-01T09:00:00+00:00"},
+    {"amount": "20.00", "status": "rejected", "company_id": "co1", "created_at": "2026-07-10T09:00:00+00:00"},
 ]
+AI_AUDIT = [{"company_id": "co1"}, {"company_id": "co1"}]  # 2 appels IA ce mois (Acme)
+REFERRALS = [{"referral_source": "Bouche-à-oreille"}, {"referral_source": None}]
 
 
 def _mock_platform_client(monkeypatch):
     mock_client = MagicMock()
-    tables = {"companies": MagicMock(), "profiles": MagicMock(), "expenses": MagicMock()}
+    tables = {
+        "companies": MagicMock(),
+        "profiles": MagicMock(),
+        "expenses": MagicMock(),
+        "revenues": MagicMock(),
+        "audit_logs": MagicMock(),
+        "registration_requests": MagicMock(),
+    }
     mock_client.table.side_effect = lambda name: tables[name]
     mock_client.tables = tables
 
@@ -42,6 +51,14 @@ def _mock_platform_client(monkeypatch):
     )
     tables["expenses"].select.return_value.execute.return_value = SimpleNamespace(
         data=EXPENSES
+    )
+    tables["revenues"].select.return_value.execute.return_value = SimpleNamespace(data=[])
+    # appels IA du mois : audit_logs.select().eq(action).gte(created_at).execute()
+    tables["audit_logs"].select.return_value.eq.return_value.gte.return_value.execute.return_value = SimpleNamespace(
+        data=AI_AUDIT
+    )
+    tables["registration_requests"].select.return_value.execute.return_value = SimpleNamespace(
+        data=REFERRALS
     )
     tables["companies"].update.return_value.eq.return_value.execute.return_value = SimpleNamespace(
         data=[{**COMPANIES[1], "subscription_status": "active"}]
@@ -70,9 +87,17 @@ def test_list_companies(client, as_super_admin, monkeypatch):
     acme = next(c for c in body if c["name"] == "Acme")
     assert acme["users_count"] == 3  # le super_admin sans entreprise ne compte pas
     assert acme["subscription_status"] == "active"
+    # Insights analyst : sièges (hors propriétaire), IA du mois, dernière activité
+    assert acme["seats_used"] == 2  # u1 + u2 (le propriétaire a1 ne compte pas)
+    assert acme["max_seats"] == 3
+    assert acme["ai_calls_month"] == 2
+    assert acme["last_activity"] == "2026-07-17T09:00:00+00:00"  # la plus récente
     globex = next(c for c in body if c["name"] == "Globex")
     assert globex["subscription_status"] == "suspended"
     assert globex["users_count"] == 1
+    assert globex["seats_used"] == 0  # seul le propriétaire — aucun collaborateur
+    assert globex["ai_calls_month"] == 0
+    assert globex["last_activity"] == "2026-05-01T09:00:00+00:00"
 
 
 def test_stats(client, as_super_admin, monkeypatch):
@@ -91,6 +116,8 @@ def test_stats(client, as_super_admin, monkeypatch):
     assert body["pending_requests"] == 2
     assert body["new_requests_today"] == 1
     assert body["plans"] == {"starter": 2}  # défaut quand la colonne est absente
+    assert body["ai_calls_month"] == 2
+    assert body["referral_sources"] == {"Bouche-à-oreille": 1, "Non renseigné": 1}
 
 
 def test_suspend_subscription_audited(client, as_super_admin, monkeypatch, silence_audit):

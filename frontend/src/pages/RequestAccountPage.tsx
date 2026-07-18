@@ -7,6 +7,17 @@ import { ErrorBanner } from "../components/ui";
 
 const labelClass = "mb-1.5 block text-sm font-medium text-fg";
 
+/** Canaux d'acquisition proposés — agrégés dans l'espace Pukri (marketing). */
+const REFERRAL_OPTIONS = [
+  "Bouche-à-oreille",
+  "Recommandation d'un client",
+  "Réseaux sociaux",
+  "Recherche Google",
+  "Événement / salon",
+  "Presse / médias",
+  "Autre",
+];
+
 /**
  * Demande de compte entreprise — PUBLIQUE. Ne crée ni tenant ni compte :
  * enregistre une demande examinée par Pukri (décision d'architecture).
@@ -21,14 +32,16 @@ export default function RequestAccountPage() {
     phone: "",
     city: "",
     employees_count: "",
+    referral_source: "",
     message: "",
   });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
 
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set = (key: keyof typeof form) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -38,6 +51,7 @@ export default function RequestAccountPage() {
       await api.post("/registration/requests", {
         ...form,
         employees_count: form.employees_count ? Number(form.employees_count) : null,
+        referral_source: form.referral_source || null,
         message: form.message || null,
       });
       setSent(true);
@@ -126,6 +140,15 @@ export default function RequestAccountPage() {
                     </label>
                     <input id="reqEmployees" type="number" min={1} max={100000} value={form.employees_count} onChange={set("employees_count")} className="field tnum" placeholder="12" />
                   </div>
+                </div>
+                <div>
+                  <label htmlFor="reqReferral" className={labelClass}>
+                    Comment nous avez-vous connu ? <span className="font-normal text-fg-subtle">(facultatif)</span>
+                  </label>
+                  <select id="reqReferral" value={form.referral_source} onChange={set("referral_source")} className="field">
+                    <option value="">Sélectionner…</option>
+                    {REFERRAL_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label htmlFor="reqMessage" className={labelClass}>

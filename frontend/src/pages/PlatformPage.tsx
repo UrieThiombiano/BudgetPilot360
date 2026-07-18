@@ -1,8 +1,19 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Factory, MapPin, Phone, Users, X } from "lucide-react";
+import { Check, Factory, MapPin, Megaphone, Phone, Users, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Bar,
+  BarChart,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { api, apiErrorMessage } from "../lib/api";
+import { useIsDark } from "../hooks/useTheme";
+import { chartColors } from "../lib/chartTheme";
 import { CardSkeleton, ErrorBanner, Skeleton, SuccessBanner } from "../components/ui";
 import { fcfa } from "../lib/format";
 
@@ -14,6 +25,10 @@ interface PlatformCompany {
   plan: string;
   subscription_ends_at: string | null;
   users_count: number;
+  seats_used: number;
+  max_seats: number;
+  ai_calls_month: number;
+  last_activity: string | null;
 }
 interface PlatformStats {
   companies_count: number;
@@ -26,6 +41,8 @@ interface PlatformStats {
   new_requests_today: number;
   expiring_soon: number;
   plans: Record<string, number>;
+  ai_calls_month: number;
+  referral_sources: Record<string, number>;
 }
 interface RegistrationRequest {
   id: string;
@@ -41,6 +58,7 @@ interface RegistrationRequest {
   status: "pending" | "approved" | "rejected";
   plan: string | null;
   rejection_reason: string | null;
+  referral_source: string | null;
   created_at: string | null;
 }
 
@@ -78,6 +96,92 @@ function RequestStatusBadge({ status }: { status: RegistrationRequest["status"] 
   };
   const labels = { pending: "En attente", approved: "Validée", rejected: "Refusée" };
   return <span className={`${badgeBase} ${styles[status]}`}>{labels[status]}</span>;
+}
+
+/* ---------- Insights « analyst » ---------- */
+
+/** Fraîcheur d'activité (dernière dépense/recette) — le signal de churn :
+ * point coloré + libellé texte (jamais la couleur seule). */
+function activityInfo(iso: string | null): { label: string; dot: string } {
+  if (!iso) return { label: "Jamais", dot: "bg-danger" };
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= 1) return { label: days <= 0 ? "Aujourd'hui" : "Hier", dot: "bg-success" };
+  if (days <= 7) return { label: `Il y a ${days} j`, dot: "bg-success" };
+  if (days <= 30) return { label: `Il y a ${days} j`, dot: "bg-warning" };
+  return { label: `Il y a ${days} j`, dot: "bg-danger" };
+}
+
+interface HBarDatum { name: string; value: number }
+
+/** Barres horizontales mono-série (identité sur l'axe, magnitude en longueur) :
+ * marques fines, bout arrondi côté valeur, libellés directs, tooltip au survol.
+ * Une seule teinte — le titre nomme la série, pas de légende nécessaire. */
+function HBarCard({
+  title,
+  subtitle,
+  data,
+  emptyText,
+  formatValue = (v: number) => String(v),
+}: {
+  title: string;
+  subtitle: string;
+  data: HBarDatum[];
+  emptyText: string;
+  formatValue?: (v: number) => string;
+}) {
+  const dark = useIsDark();
+  const colors = chartColors(dark);
+  const hasData = data.length > 0 && data.some((d) => d.value > 0);
+  return (
+    <motion.div variants={item} className="card p-5">
+      <h3 className="font-display text-sm font-semibold text-fg">{title}</h3>
+      <p className="mt-0.5 text-xs text-fg-subtle">{subtitle}</p>
+      {!hasData ? (
+        <p className="mt-4 text-sm text-fg-muted">{emptyText}</p>
+      ) : (
+        <div className="mt-4">
+          <ResponsiveContainer width="100%" height={data.length * 38 + 8}>
+            <BarChart data={data} layout="vertical" margin={{ top: 0, right: 44, bottom: 0, left: 0 }}>
+              <XAxis type="number" hide />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={116}
+                tickLine={false}
+                axisLine={false}
+                tick={{ fill: colors.muted, fontSize: 12 }}
+              />
+              <Tooltip
+                cursor={{ fill: colors.cursor }}
+                contentStyle={{
+                  backgroundColor: colors.surface,
+                  border: `1px solid ${colors.grid}`,
+                  borderRadius: 10,
+                  fontSize: 12,
+                  color: colors.muted,
+                }}
+                formatter={(value) => [formatValue(Number(value)), title]}
+              />
+              <Bar
+                dataKey="value"
+                fill={colors.bar}
+                barSize={14}
+                radius={[0, 4, 4, 0]}
+                background={{ fill: colors.cursor, radius: 4 }}
+              >
+                <LabelList
+                  dataKey="value"
+                  position="right"
+                  formatter={(v: string | number) => formatValue(Number(v))}
+                  style={{ fill: colors.muted, fontSize: 12, fontVariantNumeric: "tabular-nums" }}
+                />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </motion.div>
+  );
 }
 
 function ReviewPanel({
@@ -122,6 +226,9 @@ function ReviewPanel({
     { icon: MapPin, text: request.city },
     { icon: Factory, text: request.industry },
     { icon: Users, text: request.employees_count ? `${request.employees_count} employé(s)` : "Effectif non précisé" },
+    ...(request.referral_source
+      ? [{ icon: Megaphone, text: `Nous a connu via : ${request.referral_source}` }]
+      : []),
   ];
 
   return (
@@ -210,11 +317,23 @@ export default function PlatformPage() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
-  const plansHint = stats
-    ? Object.entries(stats.plans).map(([p, n]) => `${planLabel[p] ?? p} : ${n}`).join(" · ") || "aucune offre"
-    : undefined;
   const pendingRequests = (requests ?? []).filter((r) => r.status === "pending");
   const processedRequests = (requests ?? []).filter((r) => r.status !== "pending");
+
+  // Données des visuels — une seule teinte par graphique (mono-série).
+  const planData: HBarDatum[] = PLANS.map((p) => ({
+    name: planLabel[p],
+    value: stats?.plans[p] ?? 0,
+  }));
+  const referralData: HBarDatum[] = Object.entries(stats?.referral_sources ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, value]) => ({ name, value }));
+  const aiData: HBarDatum[] = (companies ?? [])
+    .filter((c) => c.ai_calls_month > 0)
+    .sort((a, b) => b.ai_calls_month - a.ai_calls_month)
+    .slice(0, 5)
+    .map((c) => ({ name: c.name, value: c.ai_calls_month }));
 
   return (
     <div>
@@ -227,16 +346,41 @@ export default function PlatformPage() {
       {message && <SuccessBanner className="mt-4">{message}</SuccessBanner>}
 
       {statsLoading && (
-        <div aria-busy="true" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}
+        <div aria-busy="true" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => <CardSkeleton key={i} />)}
         </div>
       )}
       {!statsLoading && stats && (
-        <motion.div variants={container} initial="hidden" animate="show" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <motion.div variants={container} initial="hidden" animate="show" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard label="Demandes en attente" value={String(stats.pending_requests)} hint={`${stats.new_requests_today} nouvelle(s) aujourd'hui`} />
           <StatCard label="Entreprises clientes" value={String(stats.companies_count)} hint={`${stats.active_companies} active(s) · ${stats.suspended_companies} suspendue(s)`} />
           <StatCard label="Abonnements expirant" value={String(stats.expiring_soon)} hint="sous 30 jours" />
-          <StatCard label="Volume traité" value={fcfa(stats.approved_amount)} hint={plansHint} />
+          <StatCard label="Appels IA ce mois" value={String(stats.ai_calls_month)} hint="coût API Mistral à surveiller" />
+          <StatCard label="Volume traité" value={fcfa(stats.approved_amount)} hint={`${stats.expenses_count} dépense(s) enregistrée(s)`} />
+        </motion.div>
+      )}
+
+      {/* Visuels analyst — répartition, acquisition, usage IA */}
+      {!statsLoading && stats && (
+        <motion.div variants={container} initial="hidden" animate="show" className="mt-6 grid gap-4 lg:grid-cols-3">
+          <HBarCard
+            title="Répartition des offres"
+            subtitle="Entreprises clientes par offre"
+            data={planData}
+            emptyText="Aucune entreprise cliente pour l'instant."
+          />
+          <HBarCard
+            title="Canaux d'acquisition"
+            subtitle="« Comment nous avez-vous connu ? » sur les demandes"
+            data={referralData}
+            emptyText="Aucun canal déclaré pour l'instant — le champ vient d'être ajouté au formulaire."
+          />
+          <HBarCard
+            title="Utilisation de l'IA"
+            subtitle="Appels à l'assistant ce mois-ci, par entreprise (top 5)"
+            data={aiData}
+            emptyText="Aucun appel à l'assistant IA ce mois-ci."
+          />
         </motion.div>
       )}
 
@@ -316,10 +460,10 @@ export default function PlatformPage() {
         )}
 
         {companies && companies.length > 0 && (
-          <table className="mt-4 w-full min-w-[720px] text-sm">
+          <table className="mt-4 w-full min-w-[920px] text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-fg-subtle">
-                {["Entreprise", "Créée le", "Utilisateurs", "Offre", "Expire le", "Abonnement"].map((h) => (
+                {["Entreprise", "Activité", "Sièges", "IA / mois", "Offre", "Expire le", "Abonnement"].map((h) => (
                   <th key={h} className="pb-2 font-medium">{h}</th>
                 ))}
                 <th className="pb-2 text-right font-medium">Action</th>
@@ -328,11 +472,41 @@ export default function PlatformPage() {
             <tbody>
               {companies.map((c) => {
                 const suspending = c.subscription_status === "active";
+                const activity = activityInfo(c.last_activity);
+                const seatsFull = c.seats_used >= c.max_seats;
                 return (
                   <tr key={c.id} className="border-t border-line transition-colors hover:bg-surface-hover">
-                    <td className="py-3 font-medium text-fg">{c.name}</td>
-                    <td className="py-3 text-fg-muted">{frDate(c.created_at)}</td>
-                    <td className="py-3 tnum text-fg-muted">{c.users_count}</td>
+                    <td className="py-3">
+                      <p className="font-medium text-fg">{c.name}</p>
+                      <p className="text-xs text-fg-subtle">depuis le {frDate(c.created_at)}</p>
+                    </td>
+                    <td className="py-3">
+                      {/* Point + libellé : la couleur n'est jamais seule */}
+                      <span className="inline-flex items-center gap-1.5 text-fg-muted">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${activity.dot}`} aria-hidden />
+                        {activity.label}
+                      </span>
+                    </td>
+                    <td className="py-3">
+                      <span className="inline-flex items-center gap-2">
+                        <span className="tnum text-fg-muted">{c.seats_used}/{c.max_seats}</span>
+                        <span className="h-1.5 w-14 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+                          <span
+                            className="block h-full rounded-full bg-accent"
+                            style={{ width: `${Math.min((c.seats_used / c.max_seats) * 100, 100)}%` }}
+                          />
+                        </span>
+                        {seatsFull && (
+                          <span
+                            className={`${badgeBase} bg-warning-soft text-warning-ink`}
+                            title="Tous les sièges sont occupés — candidat à une offre supérieure"
+                          >
+                            Complet
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-3 tnum text-fg-muted">{c.ai_calls_month > 0 ? c.ai_calls_month : "—"}</td>
                     <td className="py-3 text-fg-muted">{planLabel[c.plan] ?? c.plan}</td>
                     <td className="py-3 text-fg-muted">{frDate(c.subscription_ends_at)}</td>
                     <td className="py-3"><StatusBadge status={c.subscription_status} /></td>

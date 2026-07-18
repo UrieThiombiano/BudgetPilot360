@@ -11,6 +11,10 @@ class PlatformCompany(BaseModel):
     plan: str = "starter"
     subscription_ends_at: str | None = None
     users_count: int  # membres hors super_admin
+    seats_used: int = 0  # collaborateurs actifs (users + adjoint), hors propriétaire
+    max_seats: int = 3
+    ai_calls_month: int = 0  # appels IA du mois en cours (coût API par client)
+    last_activity: str | None = None  # dernière dépense/recette créée (signal churn)
 
 
 class PlatformStats(BaseModel):
@@ -24,6 +28,8 @@ class PlatformStats(BaseModel):
     new_requests_today: int
     expiring_soon: int  # abonnements expirant sous 30 jours
     plans: dict[str, int]  # répartition des entreprises par offre
+    ai_calls_month: int = 0  # total plateforme des appels IA du mois
+    referral_sources: dict[str, int] = {}  # canaux d'acquisition déclarés
 
 
 class SubscriptionAction(BaseModel):
