@@ -1,3 +1,4 @@
+import { useState, type ComponentType } from "react";
 import { motion, type Variants } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -12,26 +13,24 @@ import {
   Wallet,
   type LucideProps,
 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ComposedChart,
-  LabelList,
-  Legend,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import type { ComponentType } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { useIsDark } from "../hooks/useTheme";
 import { chartColors } from "../lib/chartTheme";
+import {
+  BudgetVsActual,
+  CategoryDonut,
+  DeltaBadge,
+  FinancialWaterfall,
+  KpiSparkline,
+  PeriodToggle,
+  RevenueExpenseArea,
+  tooltipClass,
+  type CategoryBreakdownEntry,
+  type Period,
+} from "../components/analytics";
 import { CardSkeleton, ErrorBanner, Skeleton } from "../components/ui";
-import { compactFcfa, fcfa } from "../lib/format";
+import { fcfa } from "../lib/format";
 
 interface ComparisonPoint {
   month: string;
@@ -44,6 +43,10 @@ interface TopCategory {
   name: string;
   planned_budget: number;
   consumed: number;
+}
+interface KindBreakdown {
+  year: CategoryBreakdownEntry[];
+  month: CategoryBreakdownEntry[];
 }
 interface DashboardSummary {
   company_name: string;
@@ -62,6 +65,9 @@ interface DashboardSummary {
   revenue_pending_count: number;
   comparison: ComparisonPoint[];
   top_categories: TopCategory[];
+  by_category: { expenses: KindBreakdown; revenues: KindBreakdown };
+  consumed_prev_year: number;
+  revenue_prev_year: number;
 }
 interface MyExpense {
   id: string;
@@ -159,19 +165,6 @@ function BudgetMeter({ ratio }: { ratio: number }) {
   );
 }
 
-const tooltipClass = "rounded-lg border border-line bg-surface px-3 py-2 text-sm shadow-popover";
-
-function CategoryTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: TopCategory }> }) {
-  if (!active || !payload?.length) return null;
-  const cat = payload[0].payload;
-  return (
-    <div className={tooltipClass}>
-      <p className="font-semibold tnum text-fg">{fcfa(cat.consumed)}</p>
-      <p className="text-xs text-fg-muted">{cat.name} · budget prévu {fcfa(cat.planned_budget)}</p>
-    </div>
-  );
-}
-
 function ComparisonTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ComparisonPoint }> }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
@@ -191,6 +184,8 @@ const chartCard = "card p-5";
 function AdminDashboard() {
   const dark = useIsDark();
   const c = chartColors(dark);
+  // Filtre de période partagé : donuts, waterfall et totaux de répartition.
+  const [period, setPeriod] = useState<Period>("year");
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["dashboard"],
@@ -223,8 +218,20 @@ function AdminDashboard() {
 
   const ratio = data.annual_budget > 0 ? data.consumed / data.annual_budget : 0;
   const hasComparison = data.comparison.some((p) => p.revenues > 0 || p.expenses > 0);
-  const topWithSpend = data.top_categories.filter((cat) => cat.consumed > 0);
   const year = new Date().getFullYear();
+
+  // Valeurs de la période sélectionnée (donuts, waterfall)
+  const periodLabel = period === "year" ? `Année ${year}` : "Mois en cours";
+  const periodExpenses = period === "year" ? data.consumed : data.month_total;
+  const periodRevenues = period === "year" ? data.revenue_year : data.revenue_month;
+  const expByCat = data.by_category.expenses[period];
+  const revByCat = data.by_category.revenues[period];
+
+  // Tendances (sparklines = 12 derniers mois, deltas = vs année précédente)
+  const sparkExpenses = data.comparison.map((p) => p.expenses);
+  const sparkRevenues = data.comparison.map((p) => p.revenues);
+  const sparkNet = data.comparison.map((p) => p.net);
+  const prevNet = data.revenue_prev_year - data.consumed_prev_year;
 
   return (
     <motion.div variants={container} initial="hidden" animate="show">
@@ -238,6 +245,8 @@ function AdminDashboard() {
           hint={data.annual_budget > 0 ? `${Math.round(ratio * 100)} % du budget annuel` : "Définissez un budget annuel pour suivre la consommation"}
         >
           {data.annual_budget > 0 && <BudgetMeter ratio={ratio} />}
+          <KpiSparkline points={sparkExpenses} color={c.expense} />
+          <DeltaBadge current={data.consumed} previous={data.consumed_prev_year} favorableWhenUp={false} label={`vs ${year - 1}`} />
         </StatCard>
         <StatCard
           label="Reste à dépenser"
@@ -258,7 +267,10 @@ function AdminDashboard() {
           icon={TrendingUp}
           iconTone="positive"
           hint={data.revenue_pending_count > 0 ? `${data.revenue_pending_count} en cours` : "confirmées"}
-        />
+        >
+          <KpiSparkline points={sparkRevenues} color={c.revenue} />
+          <DeltaBadge current={data.revenue_year} previous={data.revenue_prev_year} favorableWhenUp label={`vs ${year - 1}`} />
+        </StatCard>
         <StatCard
           label="Recettes ce mois-ci"
           value={fcfa(data.revenue_month)}
@@ -275,7 +287,10 @@ function AdminDashboard() {
           emphasize
           hint={data.net_profit >= 0 ? "vos recettes couvrent vos dépenses" : "vos dépenses dépassent vos recettes"}
           hintTone={data.net_profit >= 0 ? "muted" : "danger"}
-        />
+        >
+          <KpiSparkline points={sparkNet} color={c.net} />
+          <DeltaBadge current={data.net_profit} previous={prevNet} favorableWhenUp label={`vs ${year - 1}`} />
+        </StatCard>
         <StatCard
           label="Marge nette"
           value={data.margin !== null ? `${data.margin} %` : "—"}
@@ -300,26 +315,21 @@ function AdminDashboard() {
         <StatCard label="Refusées cette année" value={String(data.rejected_count)} icon={ArrowDownRight} />
       </div>
 
-      {/* Graphiques */}
-      <div className="mt-4 grid gap-4 xl:grid-cols-5">
+      {/* ---- Filtre de période (donuts + waterfall) ---- */}
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-display text-base font-semibold text-fg">Analyse de la période</h2>
+        <PeriodToggle value={period} onChange={setPeriod} />
+      </div>
+
+      {/* ---- Section : Recettes vs Dépenses ---- */}
+      <div className="mt-3 grid gap-4 xl:grid-cols-5">
         <motion.section variants={item} className={`${chartCard} xl:col-span-3`}>
           <h2 className="font-display text-sm font-semibold text-fg">Recettes vs Dépenses</h2>
-          <p className="text-xs text-fg-muted">12 derniers mois — recettes confirmées, dépenses approuvées, bénéfice net</p>
+          <p className="text-xs text-fg-muted">12 derniers mois — l'écart entre les aires est votre marge de manœuvre</p>
           {hasComparison ? (
             <>
-              <div className="mt-4 h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={data.comparison} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
-                    <CartesianGrid stroke={c.grid} strokeWidth={1} vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthTick} tick={{ fill: c.muted, fontSize: 11 }} axisLine={{ stroke: c.axisLine, strokeWidth: 1 }} tickLine={false} minTickGap={16} />
-                    <YAxis tickFormatter={compactFcfa} tick={{ fill: c.muted, fontSize: 11 }} axisLine={false} tickLine={false} width={64} />
-                    <Tooltip content={<ComparisonTooltip />} cursor={{ fill: c.cursor }} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => (v === "revenues" ? "Recettes" : v === "expenses" ? "Dépenses" : "Bénéfice net")} />
-                    <Bar dataKey="revenues" fill={c.revenue} barSize={12} radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="expenses" fill={c.expense} barSize={12} radius={[3, 3, 0, 0]} />
-                    <Line type="monotone" dataKey="net" stroke={c.net} strokeWidth={2} dot={{ r: 3, fill: c.net, stroke: c.surface, strokeWidth: 1 }} activeDot={{ r: 5, stroke: c.surface, strokeWidth: 2 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
+              <div className="mt-4">
+                <RevenueExpenseArea data={data.comparison} monthTick={monthTick} tooltip={<ComparisonTooltip />} />
               </div>
               <details className="mt-3">
                 <summary className="cursor-pointer text-xs text-fg-muted hover:text-fg">Voir les données en tableau</summary>
@@ -353,25 +363,53 @@ function AdminDashboard() {
         </motion.section>
 
         <motion.section variants={item} className={`${chartCard} xl:col-span-2`}>
-          <h2 className="font-display text-sm font-semibold text-fg">Postes de dépense les plus lourds</h2>
-          <p className="text-xs text-fg-muted">Dépenses approuvées, année en cours</p>
-          {topWithSpend.length > 0 ? (
-            <div className="mt-4 h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topWithSpend} layout="vertical" margin={{ top: 8, right: 48, bottom: 0, left: 0 }}>
-                  <CartesianGrid stroke={c.grid} strokeWidth={1} horizontal={false} />
-                  <XAxis type="number" tickFormatter={compactFcfa} tick={{ fill: c.muted, fontSize: 11 }} axisLine={{ stroke: c.axisLine, strokeWidth: 1 }} tickLine={false} />
-                  <YAxis type="category" dataKey="name" width={104} tick={{ fill: c.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CategoryTooltip />} cursor={{ fill: c.cursor }} />
-                  <Bar dataKey="consumed" fill={c.expense} barSize={18} radius={[0, 4, 4, 0]}>
-                    <LabelList dataKey="consumed" position="right" formatter={(v: number) => compactFcfa(v)} fill={c.muted} fontSize={11} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <p className="mt-8 pb-8 text-center text-sm text-fg-muted">Aucune dépense approuvée cette année pour l'instant.</p>
-          )}
+          <FinancialWaterfall
+            revenues={periodRevenues}
+            expenses={periodExpenses}
+            subtitle={`${periodLabel} — recettes, dépenses, et ce qu'il en reste`}
+          />
+        </motion.section>
+      </div>
+
+      {/* ---- Section : Répartition par catégorie ---- */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <motion.section variants={item} className={chartCard}>
+          <CategoryDonut
+            title="Répartition des dépenses"
+            subtitle={`Par catégorie — ${periodLabel.toLowerCase()}`}
+            rows={expByCat}
+            emptyText="Aucune dépense approuvée sur la période."
+          />
+        </motion.section>
+        <motion.section variants={item} className={chartCard}>
+          <CategoryDonut
+            title="Répartition des recettes"
+            subtitle={`Par catégorie — ${periodLabel.toLowerCase()}`}
+            rows={revByCat}
+            emptyText="Aucune recette confirmée sur la période."
+          />
+        </motion.section>
+      </div>
+
+      {/* ---- Section : Budget vs Réalisé (budgets annuels) ---- */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <motion.section variants={item} className={chartCard}>
+          <BudgetVsActual
+            title="Budget vs Consommé"
+            subtitle={`Dépenses par catégorie, année ${year} — les dépassements ressortent en rouge`}
+            rows={data.by_category.expenses.year}
+            kind="expense"
+            emptyText="Définissez des budgets par catégorie dans « Budget & catégories »."
+          />
+        </motion.section>
+        <motion.section variants={item} className={chartCard}>
+          <BudgetVsActual
+            title="Objectif vs Réalisé"
+            subtitle={`Recettes par catégorie, année ${year}`}
+            rows={data.by_category.revenues.year}
+            kind="revenue"
+            emptyText="Définissez des objectifs de recettes dans « Budget & catégories »."
+          />
         </motion.section>
       </div>
     </motion.div>

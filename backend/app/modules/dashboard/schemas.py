@@ -21,6 +21,24 @@ class TopCategory(BaseModel):
     consumed: float
 
 
+class CategoryBreakdownEntry(BaseModel):
+    id: str
+    name: str
+    planned: float  # budget prévu (dépense) ou objectif (recette)
+    amount: float  # réalisé sur la période
+    count: int  # nombre d'opérations (tooltips des donuts)
+
+
+class KindBreakdown(BaseModel):
+    year: list[CategoryBreakdownEntry]
+    month: list[CategoryBreakdownEntry]
+
+
+class CategoryBreakdowns(BaseModel):
+    expenses: KindBreakdown
+    revenues: KindBreakdown
+
+
 class DashboardSummary(BaseModel):
     company_name: str
     annual_budget: float
@@ -42,3 +60,8 @@ class DashboardSummary(BaseModel):
     monthly_trend: list[MonthlyPoint]  # 12 derniers mois, dépenses approuvées
     comparison: list[ComparisonPoint]  # 12 derniers mois : recettes vs dépenses + net
     top_categories: list[TopCategory]  # top 5 par consommé de l'année (dépenses)
+
+    # --- Analytique par catégorie (donuts, budget vs réalisé) ---
+    by_category: CategoryBreakdowns
+    consumed_prev_year: float = 0  # dépenses approuvées N-1 (delta de tendance)
+    revenue_prev_year: float = 0  # recettes confirmées N-1

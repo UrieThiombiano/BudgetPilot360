@@ -65,7 +65,7 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
 
     categories = (
         client.table("categories")
-        .select("id, name, planned_budget")
+        .select("id, name, type, planned_budget")
         .eq("company_id", company_id)
         .execute()
     ).data or []
@@ -79,12 +79,13 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
 
     revenues = (
         client.table("revenues")
-        .select("amount, status, revenue_date")
+        .select("amount, status, revenue_date, category_id")
         .eq("company_id", company_id)
         .execute()
     ).data or []
 
     year_prefix = f"{today.year:04d}-"
+    prev_year_prefix = f"{today.year - 1:04d}-"
     month_key = f"{today.year:04d}-{today.month:02d}"
     trend_keys = _last_month_keys(today, TREND_MONTHS)
     trend: dict[str, dict] = {k: {"total": 0.0, "count": 0} for k in trend_keys}
@@ -92,11 +93,23 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
 
     consumed = 0.0
     month_total = 0.0
+    consumed_prev_year = 0.0
     expenses_count = 0
     pending_count = 0
     pending_amount = 0.0
     rejected_count = 0
     consumed_by_cat: dict[str, float] = {}
+    # Répartition par catégorie (année ET mois, avec nombre d'opérations) —
+    # matière première des donuts / budget vs réalisé du dashboard analyste.
+    exp_cat_year: dict[str, dict] = {}
+    exp_cat_month: dict[str, dict] = {}
+    rev_cat_year: dict[str, dict] = {}
+    rev_cat_month: dict[str, dict] = {}
+
+    def _bump(bucket: dict[str, dict], cat_id: str, amount: float) -> None:
+        entry = bucket.setdefault(cat_id, {"amount": 0.0, "count": 0})
+        entry["amount"] += amount
+        entry["count"] += 1
 
     for e in expenses:
         amount = float(e["amount"])
@@ -111,13 +124,18 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
             if e["status"] == "rejected":
                 rejected_count += 1
         if e["status"] == "approved":
+            if expense_date.startswith(prev_year_prefix):
+                consumed_prev_year += amount
+            cat_id = e.get("category_id")
             if in_year:
                 consumed += amount
-                cat_id = e.get("category_id")
                 if cat_id:
                     consumed_by_cat[cat_id] = consumed_by_cat.get(cat_id, 0.0) + amount
+                    _bump(exp_cat_year, cat_id, amount)
                 if expense_date.startswith(month_key):
                     month_total += amount
+                    if cat_id:
+                        _bump(exp_cat_month, cat_id, amount)
             point = trend.get(expense_date[:7])
             if point is not None:
                 point["total"] += amount
@@ -126,6 +144,7 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
     # --- Recettes (confirmées = statut approved), même conventions temporelles ---
     revenue_year = 0.0
     revenue_month = 0.0
+    revenue_prev_year = 0.0
     revenue_pending_count = 0
     for r in revenues:
         amount = float(r["amount"])
@@ -133,10 +152,17 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
         if r["status"] == "pending":
             revenue_pending_count += 1
         if r["status"] == "approved":
+            if revenue_date.startswith(prev_year_prefix):
+                revenue_prev_year += amount
+            cat_id = r.get("category_id")
             if revenue_date.startswith(year_prefix):
                 revenue_year += amount
+                if cat_id:
+                    _bump(rev_cat_year, cat_id, amount)
                 if revenue_date.startswith(month_key):
                     revenue_month += amount
+                    if cat_id:
+                        _bump(rev_cat_month, cat_id, amount)
             if revenue_date[:7] in revenue_trend:
                 revenue_trend[revenue_date[:7]] += amount
 
@@ -144,6 +170,8 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
     margin = (net_profit / revenue_year * 100) if revenue_year > 0 else None
 
     annual_budget = float(company.get("annual_budget") or 0)
+    expense_categories = [c for c in categories if (c.get("type") or "expense") == "expense"]
+    revenue_categories = [c for c in categories if c.get("type") == "revenue"]
     top_categories = sorted(
         (
             {
@@ -152,11 +180,27 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
                 "planned_budget": float(c["planned_budget"]),
                 "consumed": round(consumed_by_cat.get(c["id"], 0.0), 2),
             }
-            for c in categories
+            for c in expense_categories
         ),
         key=lambda c: c["consumed"],
         reverse=True,
     )[:top_limit]
+
+    def _breakdown(cats: list[dict], bucket: dict[str, dict]) -> list[dict]:
+        """Répartition triée par montant décroissant — TOUTES les catégories du
+        type (même à 0 : le budget vs réalisé doit montrer les postes non
+        consommés), avec compteur d'opérations pour les tooltips."""
+        rows = [
+            {
+                "id": c["id"],
+                "name": c["name"],
+                "planned": float(c["planned_budget"]),
+                "amount": round(bucket.get(c["id"], {}).get("amount", 0.0), 2),
+                "count": bucket.get(c["id"], {}).get("count", 0),
+            }
+            for c in cats
+        ]
+        return sorted(rows, key=lambda r: r["amount"], reverse=True)
 
     return {
         "company_name": company["name"],
@@ -187,4 +231,18 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
             for k in trend_keys
         ],
         "top_categories": top_categories,
+        # --- Analytique par catégorie (donuts, budget vs réalisé) ---
+        "by_category": {
+            "expenses": {
+                "year": _breakdown(expense_categories, exp_cat_year),
+                "month": _breakdown(expense_categories, exp_cat_month),
+            },
+            "revenues": {
+                "year": _breakdown(revenue_categories, rev_cat_year),
+                "month": _breakdown(revenue_categories, rev_cat_month),
+            },
+        },
+        # Totaux N-1 pour les indicateurs de tendance (delta annuel).
+        "consumed_prev_year": round(consumed_prev_year, 2),
+        "revenue_prev_year": round(revenue_prev_year, 2),
     }
