@@ -14,8 +14,9 @@ COMPANY = {
     "annual_budget": "50000.00",
 }
 CATEGORIES = [
-    {"id": "c1", "name": "Transport", "planned_budget": "1000.00"},
-    {"id": "c2", "name": "Salaires", "planned_budget": "0.00"},
+    {"id": "c1", "name": "Transport", "type": "expense", "planned_budget": "1000.00"},
+    {"id": "c2", "name": "Salaires", "type": "expense", "planned_budget": "0.00"},
+    {"id": "cr1", "name": "Ventes", "type": "revenue", "planned_budget": "2000.00"},
 ]
 PROFILES = [
     {"id": "u1", "full_name": "Jean User", "email": "jean@acme-corp.fr"},
@@ -30,17 +31,24 @@ EXPENSES = [
     {"id": "e4", "amount": "60.00", "expense_date": "2026-07-09", "description": "Resto",
      "status": "rejected", "category_id": "c1", "user_id": "u1"},
 ]
+REVENUES = [
+    {"id": "r1", "amount": "400.00", "revenue_date": "2026-07-03", "description": "Vente comptant",
+     "status": "approved", "category_id": "cr1", "user_id": "u1", "source": "Client A"},
+    {"id": "r2", "amount": "100.00", "revenue_date": "2026-07-06", "description": "Acompte",
+     "status": "pending", "category_id": "cr1", "user_id": "u1", "source": "Client B"},
+]
 
 PERIOD = "date_from=2026-07-01&date_to=2026-07-31"
 
 
-def _mock_reports_client(monkeypatch, expenses=None):
+def _mock_reports_client(monkeypatch, expenses=None, revenues=None):
     mock_client = MagicMock()
     tables = {
         "companies": MagicMock(),
         "categories": MagicMock(),
         "profiles": MagicMock(),
         "expenses": MagicMock(),
+        "revenues": MagicMock(),
     }
     mock_client.table.side_effect = lambda name: tables[name]
     mock_client.tables = tables
@@ -57,6 +65,9 @@ def _mock_reports_client(monkeypatch, expenses=None):
     tables["expenses"].select.return_value.eq.return_value.gte.return_value.lte.return_value.order.return_value.execute.return_value = SimpleNamespace(
         data=EXPENSES if expenses is None else expenses
     )
+    tables["revenues"].select.return_value.eq.return_value.gte.return_value.lte.return_value.order.return_value.execute.return_value = SimpleNamespace(
+        data=REVENUES if revenues is None else revenues
+    )
 
     monkeypatch.setattr(reports_service, "get_service_client", lambda: mock_client)
     return mock_client
@@ -72,23 +83,37 @@ def test_export_excel(client, as_admin, monkeypatch, silence_audit):
     assert 'filename="rapport_budgetpilot360_2026-07-01_2026-07-31.xlsx"' in resp.headers["content-disposition"]
 
     wb = load_workbook(io.BytesIO(resp.content))
-    assert wb.sheetnames == ["Résumé", "Dépenses", "Par catégorie"]
+    assert wb.sheetnames == [
+        "Résumé", "Recettes", "Dépenses", "Recettes par catégorie", "Dépenses par catégorie"
+    ]
 
     resume = wb["Résumé"]
     assert "Acme" in resume["A1"].value
-    assert resume["B5"].value == 150.0  # approuvées : 100 + 50
-    assert resume["B6"].value == 40.0  # en attente
-    assert resume["B7"].value == 60.0  # rejetées
+    assert resume["B4"].value == 400.0  # recettes confirmées
+    assert resume["B5"].value == 150.0  # dépenses approuvées : 100 + 50
+    assert resume["B6"].value == 250.0  # bénéfice net = 400 - 150
+    assert resume["B10"].value == 40.0  # dépenses en attente
+    assert resume["B11"].value == 60.0  # dépenses rejetées
+
+    recettes = wb["Recettes"]
+    assert recettes.max_row == 3  # entête + 2 recettes
+    assert recettes["D2"].value == "Client A"  # colonne Source / client
+    assert recettes["F2"].value == 400.0
+    assert recettes["G2"].value == "Confirmée"
 
     depenses = wb["Dépenses"]
     assert depenses.max_row == 5  # entête + 4 dépenses
     assert depenses["E2"].value == 100.0
     assert depenses["F2"].value == "Approuvée"
 
-    cats = wb["Par catégorie"]
-    assert cats["A2"].value == "Transport"  # trié par consommé décroissant
-    assert cats["C2"].value == 100.0  # seules les approuvées comptent
-    assert cats["D3"].value == "—"  # budget prévu à 0 → pas de ratio
+    rev_cats = wb["Recettes par catégorie"]
+    assert rev_cats["A2"].value == "Ventes"
+    assert rev_cats["C2"].value == 400.0  # réalisé (confirmées)
+
+    exp_cats = wb["Dépenses par catégorie"]
+    assert exp_cats["A2"].value == "Transport"  # trié par consommé décroissant
+    assert exp_cats["C2"].value == 100.0  # seules les approuvées comptent
+    assert exp_cats["D3"].value == "—"  # budget prévu à 0 → pas de ratio
 
 
 def test_export_pdf(client, as_admin, monkeypatch, silence_audit):
@@ -149,11 +174,12 @@ def test_export_forbidden_for_user(client, as_user, monkeypatch):
 
 
 def test_export_empty_period(client, as_admin, monkeypatch, silence_audit):
-    _mock_reports_client(monkeypatch, expenses=[])
+    _mock_reports_client(monkeypatch, expenses=[], revenues=[])
 
     resp = client.get(f"/reports/export?format=excel&{PERIOD}")
 
     assert resp.status_code == 200
     wb = load_workbook(io.BytesIO(resp.content))
-    assert wb["Résumé"]["B5"].value == 0.0
+    assert wb["Résumé"]["B4"].value == 0.0  # recettes
+    assert wb["Résumé"]["B5"].value == 0.0  # dépenses
     assert wb["Dépenses"].max_row >= 1

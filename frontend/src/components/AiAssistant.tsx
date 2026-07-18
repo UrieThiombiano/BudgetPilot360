@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { SendHorizontal, Sparkles, X } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "../lib/api";
 
@@ -10,15 +11,10 @@ interface Message {
 
 const SUGGESTIONS = [
   "Où en est le budget cette année ?",
-  "Quelles catégories sont en dépassement ?",
-  "Qu'est-ce qui a été dépensé ce mois-ci ?",
+  "Quelles catégories dépassent leur budget ?",
+  "Quel est mon bénéfice net ce mois-ci ?",
 ];
 
-/**
- * Le prompt système exige du texte brut, mais un modèle peut laisser passer du
- * Markdown : on retire défensivement gras/italique/titres/backticks (la bulle
- * affiche du texte, les astérisques bruts seraient illisibles).
- */
 function stripMarkdown(text: string): string {
   return text
     .replace(/\*\*(.*?)\*\*/g, "$1")
@@ -29,9 +25,9 @@ function stripMarkdown(text: string): string {
 }
 
 /**
- * Assistant IA (Mistral) — bulle flottante, admin uniquement.
- * Chaque question part sur POST /ai/ask ; le backend construit le contexte
- * factuel scopé sur l'entreprise, la clé API ne quitte jamais le serveur.
+ * Assistant IA (Mistral) — bulle flottante, admin uniquement. Chaque question
+ * part sur POST /ai/ask ; le backend construit le contexte scopé entreprise,
+ * la clé API ne quitte jamais le serveur.
  */
 export default function AiAssistant() {
   const [open, setOpen] = useState(false);
@@ -43,10 +39,7 @@ export default function AiAssistant() {
     mutationFn: async (question: string) =>
       (await api.post<{ answer: string }>("/ai/ask", { question })).data,
     onSuccess: (data) =>
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: stripMarkdown(data.answer) },
-      ]),
+      setMessages((prev) => [...prev, { role: "assistant", content: stripMarkdown(data.answer) }]),
     onError: (err) =>
       setMessages((prev) => [...prev, { role: "error", content: apiErrorMessage(err) }]),
   });
@@ -79,17 +72,18 @@ export default function AiAssistant() {
 
   return (
     <>
-      {/* Bulle flottante */}
-      <button
+      <motion.button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        whileHover={{ scale: 1.06 }}
+        whileTap={{ scale: 0.94 }}
         aria-label={open ? "Fermer l'assistant IA" : "Ouvrir l'assistant IA"}
         aria-expanded={open}
         aria-haspopup="dialog"
-        className="fixed bottom-5 right-5 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-600 text-xl text-white shadow-lg shadow-indigo-600/30 transition-transform hover:scale-105 hover:bg-indigo-700"
+        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-accent-fg shadow-accent-glow"
       >
-        {open ? "✕" : "✨"}
-      </button>
+        {open ? <X size={20} strokeWidth={2} /> : <Sparkles size={20} strokeWidth={2} />}
+      </motion.button>
 
       <AnimatePresence>
         {open && (
@@ -97,25 +91,24 @@ export default function AiAssistant() {
             initial={{ opacity: 0, y: 24, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.96 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             role="dialog"
             aria-label="Assistant budgétaire IA"
-            className="fixed bottom-20 right-5 z-40 flex h-[min(520px,calc(100vh-7rem))] w-[min(380px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-950"
+            className="fixed bottom-20 right-5 z-40 flex h-[min(540px,calc(100vh-7rem))] w-[min(390px,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-popover"
           >
-            {/* En-tête */}
-            <div className="border-b border-slate-100 bg-indigo-600 px-4 py-3 dark:border-slate-800">
-              <p className="text-sm font-semibold text-white">✨ Assistant budgétaire</p>
-              <p className="text-xs text-indigo-200">
-                Répond à partir des données réelles de votre entreprise.
-              </p>
+            <div className="flex items-center gap-2.5 bg-accent px-4 py-3.5 text-accent-fg">
+              <Sparkles size={18} strokeWidth={2} />
+              <div>
+                <p className="font-display text-sm font-semibold">Assistant budgétaire</p>
+                <p className="text-xs text-accent-fg/70">Répond sur vos données réelles.</p>
+              </div>
             </div>
 
-            {/* Messages */}
             <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
               {messages.length === 0 && (
                 <div>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Posez une question sur votre budget, vos catégories ou vos dépenses.
+                  <p className="text-sm text-fg-muted">
+                    Posez une question sur votre budget, vos recettes ou vos dépenses.
                   </p>
                   <div className="mt-3 flex flex-col items-start gap-2">
                     {SUGGESTIONS.map((s) => (
@@ -123,7 +116,7 @@ export default function AiAssistant() {
                         key={s}
                         type="button"
                         onClick={() => send(s)}
-                        className="rounded-lg border border-indigo-200 px-3 py-1.5 text-left text-xs text-indigo-700 hover:bg-indigo-50 dark:border-indigo-900 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                        className="rounded-lg border border-line px-3 py-1.5 text-left text-xs text-accent-ink transition-colors hover:bg-accent-soft"
                       >
                         {s}
                       </button>
@@ -137,10 +130,10 @@ export default function AiAssistant() {
                   <div
                     className={
                       m.role === "user"
-                        ? "max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-3 py-2 text-sm text-white"
+                        ? "max-w-[85%] rounded-2xl rounded-br-sm bg-accent px-3 py-2 text-sm text-accent-fg"
                         : m.role === "error"
-                          ? "max-w-[85%] rounded-2xl rounded-bl-sm bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300"
-                          : "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-slate-800 dark:bg-slate-800 dark:text-slate-100"
+                          ? "max-w-[85%] rounded-2xl rounded-bl-sm bg-danger-soft px-3 py-2 text-sm text-danger-ink"
+                          : "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-surface-2 px-3 py-2 text-sm text-fg"
                     }
                   >
                     {m.content}
@@ -150,32 +143,31 @@ export default function AiAssistant() {
 
               {ask.isPending && (
                 <div className="flex justify-start">
-                  <div className="rounded-2xl rounded-bl-sm bg-slate-100 px-3 py-2 text-sm text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                    <span className="animate-pulse">Analyse des données…</span>
+                  <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm bg-surface-2 px-3 py-2.5 text-sm text-fg-muted">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-fg-subtle [animation-delay:-0.3s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-fg-subtle [animation-delay:-0.15s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-fg-subtle" />
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Saisie */}
-            <form
-              onSubmit={onSubmit}
-              className="flex items-center gap-2 border-t border-slate-100 p-3 dark:border-slate-800"
-            >
+            <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-line p-3">
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 maxLength={500}
                 placeholder="Votre question…"
                 aria-label="Question à l'assistant IA"
-                className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
+                className="field flex-1"
               />
               <button
                 type="submit"
                 disabled={input.trim().length < 3 || ask.isPending}
-                className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                aria-label="Envoyer"
+                className="btn btn-primary px-3"
               >
-                ➤
+                <SendHorizontal size={17} strokeWidth={2} />
               </button>
             </form>
           </motion.div>

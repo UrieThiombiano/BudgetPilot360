@@ -55,14 +55,14 @@ describe("ApprovalsPage", () => {
     apiPost.mockResolvedValue({ data: { id: "e1", status: "approved" } } as never);
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "✓ Approuver" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Approuver" }));
 
     expect(apiPost).toHaveBeenCalledWith("/expenses/e1/review", {
       action: "approve",
       reason: null,
     });
     expect(
-      await screen.findByText("Dépense approuvée — budget mis à jour.")
+      await screen.findByText("Dépense approuvée — le budget est mis à jour.")
     ).toBeInTheDocument();
   });
 
@@ -70,12 +70,12 @@ describe("ApprovalsPage", () => {
     apiPost.mockResolvedValue({ data: { id: "e1", status: "rejected" } } as never);
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "✕ Rejeter" }));
-    const confirm = screen.getByRole("button", { name: "Confirmer le rejet" });
-    expect(confirm).toBeDisabled(); // pas de rejet sans motif
+    await userEvent.click(await screen.findByRole("button", { name: "Refuser" }));
+    const confirm = screen.getByRole("button", { name: "Confirmer le refus" });
+    expect(confirm).toBeDisabled(); // pas de refus sans motif
 
     await userEvent.type(
-      screen.getByLabelText("Motif du rejet"),
+      screen.getByLabelText("Motif du refus"),
       "Justificatif manquant"
     );
     await userEvent.click(confirm);
@@ -90,8 +90,6 @@ describe("ApprovalsPage", () => {
     apiGet.mockResolvedValue({ data: [] } as never);
     renderPage();
 
-    expect(
-      await screen.findByText(/Aucune dépense en attente/)
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Tout est à jour/)).toBeInTheDocument();
   });
 });

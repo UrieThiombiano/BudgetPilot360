@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { FileSpreadsheet, FileText } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import axios from "axios";
 import { api } from "../lib/api";
@@ -45,21 +46,17 @@ const frDate = (iso: string) => {
   return `${d}/${m}/${y}`;
 };
 
-/** Lit le message d'erreur FastAPI depuis une réponse blob (axios responseType: "blob"). */
 async function blobErrorMessage(error: unknown): Promise<string> {
   if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
     try {
       const detail = JSON.parse(await error.response.data.text())?.detail;
       if (typeof detail === "string") return detail;
     } catch {
-      /* blob non-JSON : message générique */
+      /* blob non-JSON */
     }
   }
-  return "Échec de la génération du rapport. Réessayez.";
+  return "Impossible de générer le rapport. Réessayez dans un instant.";
 }
-
-const inputClass =
-  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-white";
 
 export default function ReportsPage() {
   const [preset, setPreset] = useState<PresetId>("year");
@@ -89,40 +86,33 @@ export default function ReportsPage() {
   });
 
   const pendingFormat = exporter.isPending ? exporter.variables : null;
+  const presetBtn = (active: boolean) =>
+    active
+      ? "bg-accent text-accent-fg shadow-card"
+      : "border border-line-strong text-fg-muted hover:bg-surface-2 hover:text-fg";
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">Rapports</h1>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-        Export professionnel du rapport budgétaire : résumé, détail des dépenses de la
-        période et répartition par catégorie.
+      <h1 className="font-display text-2xl font-semibold tracking-tight text-fg">Rapports</h1>
+      <p className="mt-1.5 text-sm text-fg-muted">
+        Le compte de résultat de la période : recettes, dépenses et bénéfice net, avec le détail
+        et la répartition par catégorie.
       </p>
 
       {error && (
-        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300">
-          {error}
-        </p>
+        <div role="alert" className="mt-4 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-ink">{error}</div>
       )}
 
       <motion.section
-        initial={{ opacity: 0, y: 14 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
-        className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950"
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        className="card mt-6 p-6"
       >
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Période</h2>
+        <h2 className="font-display text-sm font-semibold text-fg">Période</h2>
         <div className="mt-3 flex flex-wrap gap-2">
           {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPreset(p.id)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                preset === p.id
-                  ? "bg-indigo-600 text-white"
-                  : "border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-              }`}
-            >
+            <button key={p.id} type="button" onClick={() => setPreset(p.id)} className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${presetBtn(preset === p.id)}`}>
               {p.label}
             </button>
           ))}
@@ -131,75 +121,49 @@ export default function ReportsPage() {
         {preset === "custom" && (
           <div className="mt-4 flex flex-wrap items-end gap-3">
             <div>
-              <label htmlFor="dateFrom" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-                Du
-              </label>
-              <input
-                id="dateFrom"
-                type="date"
-                value={customFrom}
-                onChange={(e) => setCustomFrom(e.target.value)}
-                className={inputClass}
-              />
+              <label htmlFor="dateFrom" className="mb-1.5 block text-xs font-medium text-fg-muted">Du</label>
+              <input id="dateFrom" type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="field" />
             </div>
             <div>
-              <label htmlFor="dateTo" className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-                Au
-              </label>
-              <input
-                id="dateTo"
-                type="date"
-                value={customTo}
-                onChange={(e) => setCustomTo(e.target.value)}
-                className={inputClass}
-              />
+              <label htmlFor="dateTo" className="mb-1.5 block text-xs font-medium text-fg-muted">Au</label>
+              <input id="dateTo" type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="field" />
             </div>
           </div>
         )}
 
-        <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+        <p className="mt-4 text-xs text-fg-subtle">
           {rangeValid
             ? `Rapport du ${frDate(range.from)} au ${frDate(range.to)}.`
             : "Période invalide : la date de début doit précéder la date de fin."}
         </p>
 
-        <div className="mt-5 flex flex-wrap gap-3 border-t border-slate-100 pt-5 dark:border-slate-800">
-          <button
-            type="button"
-            disabled={!rangeValid || exporter.isPending}
-            onClick={() => exporter.mutate("pdf")}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
-          >
-            {pendingFormat === "pdf" ? "Génération…" : "📄 Télécharger le PDF"}
-          </button>
-          <button
-            type="button"
-            disabled={!rangeValid || exporter.isPending}
-            onClick={() => exporter.mutate("excel")}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 disabled:opacity-60"
-          >
-            {pendingFormat === "excel" ? "Génération…" : "📊 Télécharger l'Excel"}
-          </button>
+        <div className="mt-5 flex flex-wrap gap-3 border-t border-line pt-5">
+          <motion.button type="button" whileTap={{ scale: 0.98 }} disabled={!rangeValid || exporter.isPending} onClick={() => exporter.mutate("pdf")} className="btn btn-primary">
+            <FileText size={16} strokeWidth={2} />
+            {pendingFormat === "pdf" ? "Génération…" : "Télécharger le PDF"}
+          </motion.button>
+          <motion.button type="button" whileTap={{ scale: 0.98 }} disabled={!rangeValid || exporter.isPending} onClick={() => exporter.mutate("excel")} className="btn btn-ghost">
+            <FileSpreadsheet size={16} strokeWidth={2} />
+            {pendingFormat === "excel" ? "Génération…" : "Télécharger l'Excel"}
+          </motion.button>
         </div>
       </motion.section>
 
       <motion.section
-        initial={{ opacity: 0, y: 14 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut", delay: 0.08 }}
-        className="mt-4 rounded-2xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-950"
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: 0.08 }}
+        className="card mt-4 p-6"
       >
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-          Contenu du rapport
-        </h2>
-        <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-          <li>• Résumé budgétaire : budget annuel, montants approuvés / en attente / rejetés de la période.</li>
-          <li>• Détail des dépenses : date, catégorie, auteur, description, montant et statut.</li>
-          <li>• Répartition par catégorie : consommé vs budget prévu, avec pourcentage.</li>
+        <h2 className="font-display text-sm font-semibold text-fg">Ce que contient le rapport</h2>
+        <ul className="mt-3 space-y-2 text-sm text-fg-muted">
+          <li>• Synthèse <strong className="text-fg">Recettes · Dépenses · Bénéfice</strong> : recettes confirmées, dépenses approuvées, bénéfice net et marge.</li>
+          <li>• Détail des recettes et des dépenses : date, catégorie, auteur, source/client, montant et statut.</li>
+          <li>• Répartition par catégorie : réalisé vs objectif (recettes), consommé vs budget (dépenses).</li>
         </ul>
-        <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-          PDF : mise en page A4 paginée, prête à partager. Excel : trois feuilles
-          formatées (Résumé, Dépenses, Par catégorie) avec filtres automatiques.
+        <p className="mt-3 text-xs text-fg-subtle">
+          PDF : mise en page A4 paginée, prête à partager. Excel : cinq feuilles formatées
+          (Résumé, Recettes, Dépenses, Recettes/Dépenses par catégorie).
         </p>
       </motion.section>
     </div>

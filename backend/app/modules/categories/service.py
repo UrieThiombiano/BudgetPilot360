@@ -16,33 +16,41 @@ from app.core.security import CurrentUser
 from app.core.supabase_client import get_service_client
 
 
-def list_categories(company_id: str) -> list[dict]:
+def list_categories(company_id: str, type_filter: str | None = None) -> list[dict]:
+    """Catégories de l'entreprise + « consommé » (dépenses approuvées pour un
+    poste de dépense, recettes confirmées pour un poste de recette). `type_filter`
+    restreint à 'expense' ou 'revenue' (None = les deux)."""
     client = get_service_client()
-    cats = (
+    query = (
         client.table("categories")
-        .select("id, name, planned_budget, created_at")
+        .select("id, name, type, planned_budget, created_at")
         .eq("company_id", company_id)
-        .order("created_at")
-        .execute()
-    ).data or []
+    )
+    if type_filter:
+        query = query.eq("type", type_filter)
+    cats = query.order("created_at").execute().data or []
 
-    approved = (
-        client.table("expenses")
-        .select("category_id, amount")
-        .eq("company_id", company_id)
-        .eq("status", "approved")
-        .execute()
-    ).data or []
-
+    # Le « consommé » d'une catégorie = somme des transactions APPROUVÉES de sa
+    # famille. Une catégorie de dépense ne porte que des dépenses (et inversement),
+    # on peut donc fusionner les deux sources sans risque de collision.
     consumed_by_cat: dict[str, float] = {}
-    for exp in approved:
-        cat_id = exp["category_id"]
-        consumed_by_cat[cat_id] = consumed_by_cat.get(cat_id, 0.0) + float(exp["amount"])
+    for table in ("expenses", "revenues"):
+        approved = (
+            client.table(table)
+            .select("category_id, amount")
+            .eq("company_id", company_id)
+            .eq("status", "approved")
+            .execute()
+        ).data or []
+        for row in approved:
+            cat_id = row["category_id"]
+            consumed_by_cat[cat_id] = consumed_by_cat.get(cat_id, 0.0) + float(row["amount"])
 
     return [
         {
             "id": c["id"],
             "name": c["name"],
+            "type": c.get("type") or "expense",
             "planned_budget": float(c["planned_budget"]),
             "consumed": round(consumed_by_cat.get(c["id"], 0.0), 2),
             "created_at": c["created_at"],
@@ -56,7 +64,7 @@ def _is_duplicate_name(exc: Exception) -> bool:
     return "23505" in text or "duplicate" in text.lower()
 
 
-def create_category(user: CurrentUser, name: str, planned_budget: float) -> dict:
+def create_category(user: CurrentUser, name: str, planned_budget: float, type_: str = "expense") -> dict:
     client = get_service_client()
     try:
         resp = (
@@ -66,6 +74,7 @@ def create_category(user: CurrentUser, name: str, planned_budget: float) -> dict
                     "company_id": user.company_id,
                     "name": name.strip(),
                     "planned_budget": planned_budget,
+                    "type": type_,
                 }
             )
             .execute()

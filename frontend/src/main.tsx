@@ -6,6 +6,10 @@ import { MotionConfig } from "framer-motion";
 import App from "./App";
 import { AuthProvider } from "./context/AuthContext";
 import { applyStoredTheme } from "./hooks/useTheme";
+// Polices auto-hébergées (aucune requête externe) : Inter pour le corps,
+// Space Grotesk pour l'affichage (titres + montants).
+import "@fontsource-variable/inter";
+import "@fontsource-variable/space-grotesk";
 import "./index.css";
 
 // Appliquer le thème avant le premier rendu pour éviter un flash clair/sombre.

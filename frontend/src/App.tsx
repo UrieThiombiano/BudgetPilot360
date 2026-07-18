@@ -10,6 +10,7 @@ import DashboardPage from "./pages/DashboardPage";
 import TeamPage from "./pages/TeamPage";
 import BudgetSettingsPage from "./pages/BudgetSettingsPage";
 import MyExpensesPage from "./pages/MyExpensesPage";
+import MyRevenuesPage from "./pages/MyRevenuesPage";
 import ApprovalsPage from "./pages/ApprovalsPage";
 import ReportsPage from "./pages/ReportsPage";
 import PlatformPage from "./pages/PlatformPage";
@@ -75,6 +76,16 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <MyExpensesPage />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/revenues"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <MyRevenuesPage />
             </Layout>
           </ProtectedRoute>
         }

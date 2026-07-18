@@ -10,6 +10,7 @@ filet de sécurité en profondeur ; ici on prouve la première couche.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import app.core.transactions as tx_service
 import app.modules.categories.service as cat_service
 import app.modules.dashboard.service as dash_service
 import app.modules.expenses.service as exp_service
@@ -21,6 +22,9 @@ def _client_with_tables(monkeypatch, module, table_names):
     tables = {name: MagicMock() for name in table_names}
     mock_client.table.side_effect = lambda name: tables[name]
     monkeypatch.setattr(module, "get_service_client", lambda: mock_client)
+    # Le CRUD dépenses/recettes vit dans le service partagé : on l'aiguille aussi
+    # vers le mock (sans effet pour les endpoints qui ne l'utilisent pas).
+    monkeypatch.setattr(tx_service, "get_service_client", lambda: mock_client)
     return tables
 
 
@@ -37,9 +41,10 @@ def _eq_calls(mock_eq_chain_root):
 
 
 def test_categories_list_scoped_to_caller_company(client, as_user, monkeypatch):
-    tables = _client_with_tables(monkeypatch, cat_service, ["categories", "expenses"])
+    tables = _client_with_tables(monkeypatch, cat_service, ["categories", "expenses", "revenues"])
     tables["categories"].select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(data=[])
     tables["expenses"].select.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
+    tables["revenues"].select.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
 
     client.get("/categories")
 
@@ -116,12 +121,13 @@ def test_review_update_scoped_to_reviewer_company(client, as_admin, monkeypatch,
 
 
 def test_dashboard_scoped_to_caller_company(client, as_admin, monkeypatch):
-    tables = _client_with_tables(monkeypatch, dash_service, ["companies", "categories", "expenses"])
+    tables = _client_with_tables(monkeypatch, dash_service, ["companies", "categories", "expenses", "revenues"])
     tables["companies"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
         data=[{"id": ADMIN.company_id, "name": "Acme", "annual_budget": "0"}]
     )
     tables["categories"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
     tables["expenses"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
+    tables["revenues"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
 
     client.get("/dashboard/summary")
 

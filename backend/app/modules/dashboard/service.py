@@ -77,10 +77,18 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
         .execute()
     ).data or []
 
+    revenues = (
+        client.table("revenues")
+        .select("amount, status, revenue_date")
+        .eq("company_id", company_id)
+        .execute()
+    ).data or []
+
     year_prefix = f"{today.year:04d}-"
     month_key = f"{today.year:04d}-{today.month:02d}"
     trend_keys = _last_month_keys(today, TREND_MONTHS)
     trend: dict[str, dict] = {k: {"total": 0.0, "count": 0} for k in trend_keys}
+    revenue_trend: dict[str, float] = {k: 0.0 for k in trend_keys}
 
     consumed = 0.0
     month_total = 0.0
@@ -115,6 +123,26 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
                 point["total"] += amount
                 point["count"] += 1
 
+    # --- Recettes (confirmées = statut approved), même conventions temporelles ---
+    revenue_year = 0.0
+    revenue_month = 0.0
+    revenue_pending_count = 0
+    for r in revenues:
+        amount = float(r["amount"])
+        revenue_date = str(r.get("revenue_date") or "")
+        if r["status"] == "pending":
+            revenue_pending_count += 1
+        if r["status"] == "approved":
+            if revenue_date.startswith(year_prefix):
+                revenue_year += amount
+                if revenue_date.startswith(month_key):
+                    revenue_month += amount
+            if revenue_date[:7] in revenue_trend:
+                revenue_trend[revenue_date[:7]] += amount
+
+    net_profit = revenue_year - consumed
+    margin = (net_profit / revenue_year * 100) if revenue_year > 0 else None
+
     annual_budget = float(company.get("annual_budget") or 0)
     top_categories = sorted(
         (
@@ -140,8 +168,22 @@ def get_summary(company_id: str, top_limit: int = TOP_CATEGORIES_LIMIT) -> dict:
         "pending_count": pending_count,
         "pending_amount": round(pending_amount, 2),
         "rejected_count": rejected_count,
+        "revenue_month": round(revenue_month, 2),
+        "revenue_year": round(revenue_year, 2),
+        "net_profit": round(net_profit, 2),
+        "margin": round(margin, 1) if margin is not None else None,
+        "revenue_pending_count": revenue_pending_count,
         "monthly_trend": [
             {"month": k, "total": round(trend[k]["total"], 2), "count": trend[k]["count"]}
+            for k in trend_keys
+        ],
+        "comparison": [
+            {
+                "month": k,
+                "revenues": round(revenue_trend[k], 2),
+                "expenses": round(trend[k]["total"], 2),
+                "net": round(revenue_trend[k] - trend[k]["total"], 2),
+            }
             for k in trend_keys
         ],
         "top_categories": top_categories,

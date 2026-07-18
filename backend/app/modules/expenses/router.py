@@ -60,7 +60,7 @@ async def list_pending_expenses(
             category_name=e.get("category_name"),
             author_id=e["author_id"],
             author_name=e.get("author_name"),
-            has_receipt=e["has_receipt"],
+            has_receipt=e["has_proof"],
             created_at=e.get("created_at"),
         )
         for e in service.list_pending_expenses(user)

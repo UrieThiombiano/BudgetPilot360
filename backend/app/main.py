@@ -12,6 +12,7 @@ from app.modules.platform.router import router as platform_router
 from app.modules.profiles.router import router as profiles_router
 from app.modules.registration.router import router as registration_router
 from app.modules.reports.router import router as reports_router
+from app.modules.revenues.router import router as revenues_router
 from app.modules.team.router import router as team_router
 
 app = FastAPI(title="BudgetPilot360 API", version="0.1.0")
@@ -37,6 +38,7 @@ app.include_router(companies_router, prefix="/companies", tags=["companies"])
 app.include_router(team_router, prefix="/team", tags=["team"])
 app.include_router(categories_router, prefix="/categories", tags=["categories"])
 app.include_router(expenses_router, prefix="/expenses", tags=["expenses"])
+app.include_router(revenues_router, prefix="/revenues", tags=["revenues"])
 app.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
 app.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(reports_router, prefix="/reports", tags=["reports"])

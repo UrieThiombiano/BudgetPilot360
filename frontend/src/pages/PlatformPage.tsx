@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { Check, Factory, MapPin, Phone, Users, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "../lib/api";
 import { CardSkeleton, ErrorBanner, Skeleton, SuccessBanner } from "../components/ui";
@@ -14,7 +15,6 @@ interface PlatformCompany {
   subscription_ends_at: string | null;
   users_count: number;
 }
-
 interface PlatformStats {
   companies_count: number;
   active_companies: number;
@@ -27,7 +27,6 @@ interface PlatformStats {
   expiring_soon: number;
   plans: Record<string, number>;
 }
-
 interface RegistrationRequest {
   id: string;
   company_name: string;
@@ -45,64 +44,41 @@ interface RegistrationRequest {
 }
 
 const PLANS = ["starter", "standard", "premium"] as const;
-const planLabel: Record<string, string> = {
-  starter: "Starter",
-  standard: "Standard",
-  premium: "Premium",
-};
+const planLabel: Record<string, string> = { starter: "Starter", standard: "Standard", premium: "Premium" };
+const frDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "Non précisée");
 
-const frDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString("fr-FR") : "—";
-
-const containerVariants = { hidden: {}, show: { transition: { staggerChildren: 0.06 } } };
-const itemVariants = {
-  hidden: { opacity: 0, y: 14 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.35 } },
-};
-
-const cardClass =
-  "rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950";
-
-const inputClass =
-  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-white";
+const container = { hidden: {}, show: { transition: { staggerChildren: 0.06 } } };
+const item = { hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0, transition: { duration: 0.35 } } };
+const labelClass = "mb-1 block text-xs font-medium text-fg-muted";
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <motion.div variants={itemVariants} className={cardClass}>
-      <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-900 dark:text-white">{value}</p>
-      {hint && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p>}
+    <motion.div variants={item} className="card p-5 transition-shadow hover:shadow-elevated">
+      <p className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{label}</p>
+      <p className="mt-2 font-display text-2xl font-semibold tracking-tight tnum text-fg">{value}</p>
+      {hint && <p className="mt-1 text-xs text-fg-subtle">{hint}</p>}
     </motion.div>
   );
 }
 
+const badgeBase = "rounded-full px-2.5 py-0.5 text-xs font-semibold";
 function StatusBadge({ status }: { status: PlatformCompany["subscription_status"] }) {
   return status === "active" ? (
-    <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-      Actif
-    </span>
+    <span className={`${badgeBase} bg-success-soft text-success-ink`}>Actif</span>
   ) : (
-    <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-950/50 dark:text-red-300">
-      Suspendu
-    </span>
+    <span className={`${badgeBase} bg-danger-soft text-danger-ink`}>Suspendu</span>
   );
 }
-
 function RequestStatusBadge({ status }: { status: RegistrationRequest["status"] }) {
   const styles = {
-    pending: "bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
-    approved: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
-    rejected: "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+    pending: "bg-warning-soft text-warning-ink",
+    approved: "bg-success-soft text-success-ink",
+    rejected: "bg-danger-soft text-danger-ink",
   };
   const labels = { pending: "En attente", approved: "Validée", rejected: "Refusée" };
-  return (
-    <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${styles[status]}`}>
-      {labels[status]}
-    </span>
-  );
+  return <span className={`${badgeBase} ${styles[status]}`}>{labels[status]}</span>;
 }
 
-/** Panneau d'examen d'une demande : offre + durée + note → approbation, ou motif → refus. */
 function ReviewPanel({
   request,
   onDone,
@@ -120,15 +96,13 @@ function ReviewPanel({
 
   const review = useMutation({
     mutationFn: async (action: "approve" | "reject") =>
-      (
-        await api.post(`/registration/requests/${request.id}/review`, {
-          action,
-          plan: action === "approve" ? plan : null,
-          subscription_months: action === "approve" ? Number(months) : null,
-          internal_note: note.trim(),
-          rejection_reason: reason.trim(),
-        })
-      ).data,
+      (await api.post(`/registration/requests/${request.id}/review`, {
+        action,
+        plan: action === "approve" ? plan : null,
+        subscription_months: action === "approve" ? Number(months) : null,
+        internal_note: note.trim(),
+        rejection_reason: reason.trim(),
+      })).data,
     onSuccess: (_data, action) => {
       onDone(
         action === "approve"
@@ -142,64 +116,40 @@ function ReviewPanel({
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
+  const meta = [
+    { icon: Phone, text: request.phone },
+    { icon: MapPin, text: request.city },
+    { icon: Factory, text: request.industry },
+    { icon: Users, text: request.employees_count ? `${request.employees_count} employé(s)` : "Effectif non précisé" },
+  ];
+
   return (
-    <div className="mt-3 space-y-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-      <div className="grid gap-2 text-sm text-slate-600 dark:text-slate-300 sm:grid-cols-2">
-        <p>📞 {request.phone}</p>
-        <p>📍 {request.city}</p>
-        <p>🏭 {request.industry}</p>
-        <p>👥 {request.employees_count ?? "?"} employé(s)</p>
+    <div className="mt-3 space-y-3 border-t border-line pt-3">
+      <div className="grid gap-2 text-sm text-fg-muted sm:grid-cols-2">
+        {meta.map(({ icon: Icon, text }, i) => (
+          <p key={i} className="flex items-center gap-2">
+            <Icon size={14} strokeWidth={2} className="text-fg-subtle" /> {text}
+          </p>
+        ))}
       </div>
       {request.message && (
-        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-          « {request.message} »
-        </p>
+        <p className="rounded-lg bg-surface-2 px-3 py-2 text-sm text-fg-muted">« {request.message} »</p>
       )}
 
       <div className="flex flex-wrap items-end gap-3">
         <div>
-          <label htmlFor={`plan-${request.id}`} className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-            Offre
-          </label>
-          <select
-            id={`plan-${request.id}`}
-            value={plan}
-            onChange={(e) => setPlan(e.target.value as (typeof PLANS)[number])}
-            className={inputClass}
-          >
-            {PLANS.map((p) => (
-              <option key={p} value={p}>
-                {planLabel[p]}
-              </option>
-            ))}
+          <label htmlFor={`plan-${request.id}`} className={labelClass}>Offre</label>
+          <select id={`plan-${request.id}`} value={plan} onChange={(e) => setPlan(e.target.value as (typeof PLANS)[number])} className="field">
+            {PLANS.map((p) => <option key={p} value={p}>{planLabel[p]}</option>)}
           </select>
         </div>
         <div>
-          <label htmlFor={`months-${request.id}`} className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-            Durée (mois)
-          </label>
-          <input
-            id={`months-${request.id}`}
-            type="number"
-            min={1}
-            max={60}
-            value={months}
-            onChange={(e) => setMonths(e.target.value)}
-            className={`${inputClass} w-28`}
-          />
+          <label htmlFor={`months-${request.id}`} className={labelClass}>Durée (mois)</label>
+          <input id={`months-${request.id}`} type="number" min={1} max={60} value={months} onChange={(e) => setMonths(e.target.value)} className="field tnum w-28" />
         </div>
         <div className="min-w-48 flex-1">
-          <label htmlFor={`note-${request.id}`} className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-            Note interne (jamais visible par le demandeur)
-          </label>
-          <input
-            id={`note-${request.id}`}
-            maxLength={1000}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className={`${inputClass} w-full`}
-            placeholder="Ex : contacté par téléphone le…"
-          />
+          <label htmlFor={`note-${request.id}`} className={labelClass}>Note interne (jamais visible par le demandeur)</label>
+          <input id={`note-${request.id}`} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} className="field" placeholder="Ex : contacté par téléphone le…" />
         </div>
       </div>
 
@@ -208,30 +158,18 @@ function ReviewPanel({
           type="button"
           disabled={review.isPending || !(Number(months) >= 1)}
           onClick={() => review.mutate("approve")}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+          className="btn px-4 py-2 text-sm"
+          style={{ backgroundColor: "var(--success)", color: "var(--success-fg)" }}
         >
-          {review.isPending ? "…" : "✓ Approuver et créer le tenant"}
+          <Check size={15} strokeWidth={2.25} /> {review.isPending ? "…" : "Approuver et créer le tenant"}
         </button>
         <div className="flex min-w-64 flex-1 items-end gap-2">
           <div className="flex-1">
-            <label htmlFor={`reason-${request.id}`} className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-              Motif du refus (optionnel)
-            </label>
-            <input
-              id={`reason-${request.id}`}
-              maxLength={500}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className={`${inputClass} w-full`}
-            />
+            <label htmlFor={`reason-${request.id}`} className={labelClass}>Motif du refus (facultatif)</label>
+            <input id={`reason-${request.id}`} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} className="field" />
           </div>
-          <button
-            type="button"
-            disabled={review.isPending}
-            onClick={() => review.mutate("reject")}
-            className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-60 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
-          >
-            ✕ Refuser
+          <button type="button" disabled={review.isPending} onClick={() => review.mutate("reject")} className="btn btn-danger px-4 py-2 text-sm">
+            <X size={15} strokeWidth={2.25} /> Refuser
           </button>
         </div>
       </div>
@@ -251,13 +189,10 @@ export default function PlatformPage() {
     queryKey: ["platform-stats"],
     queryFn: async () => (await api.get<PlatformStats>("/platform/stats")).data,
   });
-
   const { data: requests, isLoading: requestsLoading } = useQuery({
     queryKey: ["registration-requests"],
-    queryFn: async () =>
-      (await api.get<RegistrationRequest[]>("/registration/requests")).data,
+    queryFn: async () => (await api.get<RegistrationRequest[]>("/registration/requests")).data,
   });
-
   const { data: companies, isLoading, isError } = useQuery({
     queryKey: ["platform-companies"],
     queryFn: async () => (await api.get<PlatformCompany[]>("/platform/companies")).data,
@@ -275,77 +210,41 @@ export default function PlatformPage() {
   });
 
   const plansHint = stats
-    ? Object.entries(stats.plans)
-        .map(([p, n]) => `${planLabel[p] ?? p} : ${n}`)
-        .join(" · ") || "aucune offre"
+    ? Object.entries(stats.plans).map(([p, n]) => `${planLabel[p] ?? p} : ${n}`).join(" · ") || "aucune offre"
     : undefined;
-
   const pendingRequests = (requests ?? []).filter((r) => r.status === "pending");
   const processedRequests = (requests ?? []).filter((r) => r.status !== "pending");
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">
-        Plateforme — Espace Pukri
-      </h1>
-      <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+      <h1 className="font-display text-2xl font-semibold tracking-tight text-fg">Plateforme — Espace Pukri</h1>
+      <p className="mt-1.5 text-sm text-fg-muted">
         Demandes d'inscription, entreprises clientes et abonnements BudgetPilot360.
       </p>
 
       {error && <ErrorBanner className="mt-4">{error}</ErrorBanner>}
       {message && <SuccessBanner className="mt-4">{message}</SuccessBanner>}
 
-      {/* Indicateurs */}
       {statsLoading && (
         <div aria-busy="true" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <CardSkeleton key={i} />
-          ))}
+          {Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)}
         </div>
       )}
       {!statsLoading && stats && (
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="show"
-          className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-        >
-          <StatCard
-            label="Demandes en attente"
-            value={String(stats.pending_requests)}
-            hint={`${stats.new_requests_today} nouvelle(s) aujourd'hui`}
-          />
-          <StatCard
-            label="Entreprises clientes"
-            value={String(stats.companies_count)}
-            hint={`${stats.active_companies} active(s) · ${stats.suspended_companies} suspendue(s)`}
-          />
-          <StatCard
-            label="Abonnements expirant"
-            value={String(stats.expiring_soon)}
-            hint="sous 30 jours"
-          />
-          <StatCard
-            label="Volume traité"
-            value={fcfa(stats.approved_amount)}
-            hint={plansHint}
-          />
+        <motion.div variants={container} initial="hidden" animate="show" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Demandes en attente" value={String(stats.pending_requests)} hint={`${stats.new_requests_today} nouvelle(s) aujourd'hui`} />
+          <StatCard label="Entreprises clientes" value={String(stats.companies_count)} hint={`${stats.active_companies} active(s) · ${stats.suspended_companies} suspendue(s)`} />
+          <StatCard label="Abonnements expirant" value={String(stats.expiring_soon)} hint="sous 30 jours" />
+          <StatCard label="Volume traité" value={fcfa(stats.approved_amount)} hint={plansHint} />
         </motion.div>
       )}
 
       {/* Demandes d'inscription */}
-      <motion.section
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, delay: 0.1 }}
-        className={`${cardClass} mt-6`}
-      >
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-          Demandes d'inscription
-        </h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Le tenant n'est créé qu'à l'approbation — le responsable reçoit alors un
-          email d'activation et choisit lui-même son mot de passe.
+      <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.1 }} className="card mt-6 p-5">
+        <h2 className="font-display text-sm font-semibold text-fg">Demandes d'inscription</h2>
+        <p className="text-xs text-fg-muted">
+          Le tenant n'est créé qu'à l'approbation — le responsable reçoit alors un email d'activation
+          et choisit lui-même son mot de passe.
         </p>
 
         {requestsLoading && (
@@ -354,75 +253,43 @@ export default function PlatformPage() {
             <Skeleton className="h-14 w-full" />
           </div>
         )}
-
         {requests && requests.length === 0 && (
-          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-            Aucune demande pour l'instant.
-          </p>
+          <p className="mt-4 text-sm text-fg-muted">Aucune demande à examiner pour le moment.</p>
         )}
 
         <div className="mt-4 space-y-3">
           {pendingRequests.map((r) => (
-            <div
-              key={r.id}
-              className="rounded-xl border border-amber-200 p-4 dark:border-amber-900/60"
-            >
+            <div key={r.id} className="rounded-xl border border-warning/40 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="font-medium text-slate-900 dark:text-white">
-                    {r.company_name}{" "}
-                    <span className="text-sm font-normal text-slate-500 dark:text-slate-400">
-                      · {r.industry} · {r.city}
-                    </span>
+                  <p className="font-medium text-fg">
+                    {r.company_name} <span className="text-sm font-normal text-fg-muted">· {r.industry} · {r.city}</span>
                   </p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    {r.contact_name} — {r.email} · demande du {frDate(r.created_at)}
-                  </p>
+                  <p className="text-sm text-fg-muted">{r.contact_name} — {r.email} · demande du {frDate(r.created_at)}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <RequestStatusBadge status={r.status} />
                   <button
                     type="button"
-                    onClick={() => {
-                      setError(null);
-                      setMessage(null);
-                      setOpenRequestId(openRequestId === r.id ? null : r.id);
-                    }}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    onClick={() => { setError(null); setMessage(null); setOpenRequestId(openRequestId === r.id ? null : r.id); }}
+                    className="btn btn-ghost px-3 py-1.5 text-xs"
                   >
                     {openRequestId === r.id ? "Fermer" : "Examiner"}
                   </button>
                 </div>
               </div>
               {openRequestId === r.id && (
-                <ReviewPanel
-                  request={r}
-                  onDone={(msg) => {
-                    setOpenRequestId(null);
-                    setMessage(msg);
-                  }}
-                  onError={(msg) => setError(msg)}
-                />
+                <ReviewPanel request={r} onDone={(msg) => { setOpenRequestId(null); setMessage(msg); }} onError={(msg) => setError(msg)} />
               )}
             </div>
           ))}
 
           {processedRequests.map((r) => (
-            <div
-              key={r.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 px-4 py-3 dark:border-slate-800"
-            >
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                <span className="font-medium text-slate-900 dark:text-white">
-                  {r.company_name}
-                </span>{" "}
-                · {r.contact_name} · {frDate(r.created_at)}
-                {r.status === "rejected" && r.rejection_reason && (
-                  <span className="text-slate-400"> — {r.rejection_reason}</span>
-                )}
-                {r.status === "approved" && r.plan && (
-                  <span className="text-slate-400"> — offre {planLabel[r.plan] ?? r.plan}</span>
-                )}
+            <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-4 py-3">
+              <p className="text-sm text-fg-muted">
+                <span className="font-medium text-fg">{r.company_name}</span> · {r.contact_name} · {frDate(r.created_at)}
+                {r.status === "rejected" && r.rejection_reason && <span className="text-fg-subtle"> — {r.rejection_reason}</span>}
+                {r.status === "approved" && r.plan && <span className="text-fg-subtle"> — offre {planLabel[r.plan] ?? r.plan}</span>}
               </p>
               <RequestStatusBadge status={r.status} />
             </div>
@@ -431,45 +298,26 @@ export default function PlatformPage() {
       </motion.section>
 
       {/* Entreprises clientes */}
-      <motion.section
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, delay: 0.15 }}
-        className={`${cardClass} mt-6 overflow-x-auto`}
-      >
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-          Entreprises clientes
-        </h2>
+      <motion.section initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.15 }} className="card mt-6 overflow-x-auto p-5">
+        <h2 className="font-display text-sm font-semibold text-fg">Entreprises clientes</h2>
 
         {isLoading && (
           <div aria-busy="true" className="mt-4 space-y-3">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
+            {Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
           </div>
         )}
-        {isError && (
-          <ErrorBanner className="mt-4">
-            Impossible de charger les entreprises. Réessayez.
-          </ErrorBanner>
-        )}
-
+        {isError && <ErrorBanner className="mt-4">Impossible d'afficher les entreprises. Réessayez.</ErrorBanner>}
         {companies && companies.length === 0 && (
-          <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-            Aucune entreprise cliente pour l'instant.
-          </p>
+          <p className="mt-4 text-sm text-fg-muted">Aucune entreprise cliente pour l'instant.</p>
         )}
 
         {companies && companies.length > 0 && (
           <table className="mt-4 w-full min-w-[720px] text-sm">
             <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                <th className="pb-2 font-medium">Entreprise</th>
-                <th className="pb-2 font-medium">Créée le</th>
-                <th className="pb-2 font-medium">Utilisateurs</th>
-                <th className="pb-2 font-medium">Offre</th>
-                <th className="pb-2 font-medium">Expire le</th>
-                <th className="pb-2 font-medium">Abonnement</th>
+              <tr className="text-left text-xs uppercase tracking-wide text-fg-subtle">
+                {["Entreprise", "Créée le", "Utilisateurs", "Offre", "Expire le", "Abonnement"].map((h) => (
+                  <th key={h} className="pb-2 font-medium">{h}</th>
+                ))}
                 <th className="pb-2 text-right font-medium">Action</th>
               </tr>
             </thead>
@@ -477,57 +325,33 @@ export default function PlatformPage() {
               {companies.map((c) => {
                 const suspending = c.subscription_status === "active";
                 return (
-                  <tr key={c.id} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-3 font-medium text-slate-900 dark:text-white">{c.name}</td>
-                    <td className="py-3 text-slate-600 dark:text-slate-300">{frDate(c.created_at)}</td>
-                    <td className="py-3 text-slate-600 dark:text-slate-300">{c.users_count}</td>
-                    <td className="py-3 text-slate-600 dark:text-slate-300">
-                      {planLabel[c.plan] ?? c.plan}
-                    </td>
-                    <td className="py-3 text-slate-600 dark:text-slate-300">
-                      {frDate(c.subscription_ends_at)}
-                    </td>
-                    <td className="py-3">
-                      <StatusBadge status={c.subscription_status} />
-                    </td>
+                  <tr key={c.id} className="border-t border-line transition-colors hover:bg-surface-hover">
+                    <td className="py-3 font-medium text-fg">{c.name}</td>
+                    <td className="py-3 text-fg-muted">{frDate(c.created_at)}</td>
+                    <td className="py-3 tnum text-fg-muted">{c.users_count}</td>
+                    <td className="py-3 text-fg-muted">{planLabel[c.plan] ?? c.plan}</td>
+                    <td className="py-3 text-fg-muted">{frDate(c.subscription_ends_at)}</td>
+                    <td className="py-3"><StatusBadge status={c.subscription_status} /></td>
                     <td className="py-3 text-right">
                       {confirmId === c.id ? (
                         <span className="inline-flex gap-2">
                           <button
                             type="button"
                             disabled={setSubscription.isPending}
-                            onClick={() =>
-                              setSubscription.mutate({
-                                id: c.id,
-                                action: suspending ? "suspend" : "activate",
-                              })
-                            }
-                            className={`rounded-lg px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-60 ${
-                              suspending ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"
-                            }`}
+                            onClick={() => setSubscription.mutate({ id: c.id, action: suspending ? "suspend" : "activate" })}
+                            className="btn px-2.5 py-1 text-xs"
+                            style={{ backgroundColor: suspending ? "var(--danger)" : "var(--success)", color: "#fff" }}
                           >
                             Confirmer {suspending ? "la suspension" : "la réactivation"}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmId(null)}
-                            className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                          >
-                            Annuler
-                          </button>
+                          <button type="button" onClick={() => setConfirmId(null)} className="btn btn-ghost px-2.5 py-1 text-xs">Annuler</button>
                         </span>
                       ) : (
                         <button
                           type="button"
-                          onClick={() => {
-                            setError(null);
-                            setConfirmId(c.id);
-                          }}
-                          className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${
-                            suspending
-                              ? "border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
-                              : "border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-900 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-                          }`}
+                          onClick={() => { setError(null); setConfirmId(c.id); }}
+                          className={`btn px-2.5 py-1 text-xs ${suspending ? "btn-danger" : ""}`}
+                          style={suspending ? undefined : { border: "1px solid color-mix(in srgb, var(--success) 35%, transparent)", color: "var(--success-ink)" }}
                         >
                           {suspending ? "Suspendre" : "Réactiver"}
                         </button>

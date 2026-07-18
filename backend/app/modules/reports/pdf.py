@@ -75,33 +75,44 @@ th.num { text-align: right; }
 .bar-over { background: #d03b3b; }
 .muted { color: #6b6b76; }
 .empty { color: #6b6b76; font-style: italic; padding: 14px 0; }
+.kpi.accent-rev { border-color: #bfe6cd; background: #f2fbf5; }
+.kpi.accent-exp { border-color: #f5d9d9; background: #fdf6f6; }
+.kpi.accent-net { border-color: #c7cbf5; background: #f5f6ff; }
+.profit-pos { color: #116329; }
+.profit-neg { color: #a12622; }
 """
 
 
-def _kpi(label: str, value: str) -> str:
+def _kpi(label: str, value: str, cls: str = "", value_cls: str = "") -> str:
     return (
-        f'<div class="kpi"><div class="label">{html.escape(label)}</div>'
-        f'<div class="value">{html.escape(value)}</div></div>'
+        f'<div class="kpi {cls}"><div class="label">{html.escape(label)}</div>'
+        f'<div class="value {value_cls}">{html.escape(value)}</div></div>'
     )
 
 
-def build_html(data: dict) -> str:
+def _detail_rows(rows: list[dict], *, with_source: bool, empty: str) -> str:
     e = html.escape
-    period = f"{_fr_date(data['date_from'])} au {_fr_date(data['date_to'])}"
+    cols = 7 if with_source else 6
+    out = ""
+    for x in rows:
+        source_cell = f"<td>{e(x.get('source', ''))}</td>" if with_source else ""
+        out += (
+            f"<tr><td>{_fr_date_str(x['date'])}</td>"
+            f"<td>{e(x['category_name'])}</td>"
+            f"<td>{e(x['author_name'])}</td>"
+            f"{source_cell}"
+            f"<td>{e(x['description'][:80])}</td>"
+            f"<td class='num'>{fcfa(x['amount'])}</td>"
+            f"<td><span class='chip' style='background:{STATUS_COLORS[x['status']][0]};"
+            f"color:{STATUS_COLORS[x['status']][1]}'>{e(x['status_label'])}</span></td></tr>"
+        )
+    return out or f"<tr><td colspan='{cols}' class='empty'>{empty}</td></tr>"
 
-    expense_rows = "".join(
-        f"<tr><td>{_fr_date_str(x['expense_date'])}</td>"
-        f"<td>{e(x['category_name'])}</td>"
-        f"<td>{e(x['author_name'])}</td>"
-        f"<td>{e(x['description'][:90])}</td>"
-        f"<td class='num'>{fcfa(x['amount'])}</td>"
-        f"<td><span class='chip' style='background:{STATUS_COLORS[x['status']][0]};"
-        f"color:{STATUS_COLORS[x['status']][1]}'>{e(x['status_label'])}</span></td></tr>"
-        for x in data["expenses"]
-    ) or "<tr><td colspan='6' class='empty'>Aucune dépense sur la période.</td></tr>"
 
-    breakdown_rows = ""
-    for c in data["breakdown"]:
+def _breakdown_rows(items: list[dict], label_planned: str, label_done: str) -> str:
+    e = html.escape
+    out = ""
+    for c in items:
         if c["ratio"] is None:
             bar, pct = "<span class='muted'>—</span>", "—"
         else:
@@ -112,42 +123,64 @@ def build_html(data: dict) -> str:
                 f"style='width:{width:.0f}%'></div></div>"
             )
             pct = f"{c['ratio'] * 100:.0f} %"
-        breakdown_rows += (
+        out += (
             f"<tr><td>{e(c['name'])}</td>"
             f"<td class='num'>{fcfa(c['planned_budget'])}</td>"
             f"<td class='num'>{fcfa(c['consumed'])}</td>"
             f"<td class='num'>{pct}</td><td style='width:22%'>{bar}</td></tr>"
         )
-    if not breakdown_rows:
-        breakdown_rows = "<tr><td colspan='5' class='empty'>Aucune catégorie.</td></tr>"
+    return out or "<tr><td colspan='5' class='empty'>Aucune catégorie.</td></tr>"
+
+
+def build_html(data: dict) -> str:
+    e = html.escape
+    period = f"{_fr_date(data['date_from'])} au {_fr_date(data['date_to'])}"
+    net = data["net_profit"]
+    net_cls = "profit-pos" if net >= 0 else "profit-neg"
+    margin = f"{data['margin']:.0f} %" if data["margin"] is not None else "—"
 
     return f"""
 <style>{_CSS}</style>
 <div class="header">
   <div class="brand">BUDGETPILOT360</div>
-  <h1>Rapport budgétaire — {e(data['company_name'])}</h1>
+  <h1>Rapport financier — {e(data['company_name'])}</h1>
   <p class="subtitle">Période du {period} · généré le {_fr_date(data['generated_on'])}</p>
 </div>
 
+<h2>Recettes · Dépenses · Bénéfice</h2>
 <div class="kpis">
-  {_kpi("Budget annuel", fcfa(data['annual_budget']))}
-  {_kpi(f"Approuvées ({data['count_approved']})", fcfa(data['total_approved']))}
-  {_kpi(f"En attente ({data['count_pending']})", fcfa(data['total_pending']))}
-  {_kpi(f"Rejetées ({data['count_rejected']})", fcfa(data['total_rejected']))}
+  {_kpi(f"Recettes confirmées ({data['count_revenue_approved']})", fcfa(data['total_revenue']), "accent-rev")}
+  {_kpi(f"Dépenses approuvées ({data['count_approved']})", fcfa(data['total_approved']), "accent-exp")}
+  {_kpi("Bénéfice net", fcfa(net), "accent-net", net_cls)}
+  {_kpi("Marge", margin, "accent-net", net_cls)}
 </div>
 
-<h2>Répartition par catégorie (dépenses approuvées de la période)</h2>
+<h2>Détail des recettes ({len(data['revenues'])})</h2>
 <table>
-  <thead><tr><th>Catégorie</th><th class="num">Budget prévu</th><th class="num">Consommé</th>
+  <thead><tr><th>Date</th><th>Catégorie</th><th>Auteur</th><th>Source / client</th>
+  <th>Description</th><th class="num">Montant</th><th>Statut</th></tr></thead>
+  <tbody>{_detail_rows(data['revenues'], with_source=True, empty="Aucune recette sur la période.")}</tbody>
+</table>
+
+<h2>Recettes par catégorie (confirmées de la période)</h2>
+<table>
+  <thead><tr><th>Catégorie</th><th class="num">Objectif</th><th class="num">Réalisé</th>
   <th class="num">%</th><th></th></tr></thead>
-  <tbody>{breakdown_rows}</tbody>
+  <tbody>{_breakdown_rows(data['revenue_breakdown'], "Objectif", "Réalisé")}</tbody>
 </table>
 
 <h2>Détail des dépenses ({len(data['expenses'])})</h2>
 <table>
   <thead><tr><th>Date</th><th>Catégorie</th><th>Auteur</th><th>Description</th>
   <th class="num">Montant</th><th>Statut</th></tr></thead>
-  <tbody>{expense_rows}</tbody>
+  <tbody>{_detail_rows(data['expenses'], with_source=False, empty="Aucune dépense sur la période.")}</tbody>
+</table>
+
+<h2>Dépenses par catégorie (approuvées de la période)</h2>
+<table>
+  <thead><tr><th>Catégorie</th><th class="num">Budget prévu</th><th class="num">Consommé</th>
+  <th class="num">%</th><th></th></tr></thead>
+  <tbody>{_breakdown_rows(data['breakdown'], "Budget prévu", "Consommé")}</tbody>
 </table>
 """
 

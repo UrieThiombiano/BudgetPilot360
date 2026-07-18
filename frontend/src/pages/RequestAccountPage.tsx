@@ -1,13 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { MailCheck } from "lucide-react";
 import { api, apiErrorMessage } from "../lib/api";
 import { ErrorBanner } from "../components/ui";
 
-const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-white";
-
-const labelClass = "mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300";
+const labelClass = "mb-1.5 block text-sm font-medium text-fg";
 
 /**
  * Demande de compte entreprise — PUBLIQUE. Ne crée ni tenant ni compte :
@@ -50,110 +48,96 @@ export default function RequestAccountPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10 dark:bg-slate-900">
+    <div className="flex min-h-screen items-center justify-center bg-bg px-4 py-10">
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
+        transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
         className="w-full max-w-xl"
       >
         <div className="mb-6 text-center">
-          <span className="text-2xl font-bold text-slate-900 dark:text-white">
-            BudgetPilot<span className="text-indigo-600">360</span>
+          <span className="font-display text-2xl font-bold tracking-tight text-fg">
+            BudgetPilot<span className="text-accent-ink">360</span>
           </span>
         </div>
 
-        <div className="rounded-2xl bg-white p-8 shadow-lg dark:bg-slate-800">
+        <div className="card p-8 shadow-elevated">
           {sent ? (
-            <div className="text-center">
-              <p className="text-4xl">📨</p>
-              <h1 className="mt-3 text-xl font-semibold text-slate-900 dark:text-white">
-                Demande envoyée !
-              </h1>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                L'équipe Pukri AI Systems examine votre demande. Une fois validée,
-                le responsable recevra un email d'activation pour créer son mot de
-                passe et configurer l'entreprise.
+            <div className="flex flex-col items-center text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-soft text-accent-ink">
+                <MailCheck size={26} strokeWidth={1.75} />
+              </span>
+              <h1 className="mt-4 font-display text-xl font-semibold text-fg">Demande envoyée</h1>
+              <p className="mt-2 max-w-sm text-sm text-fg-muted">
+                L'équipe Pukri AI Systems examine votre demande. Une fois validée, le responsable
+                recevra un email pour activer son compte et configurer l'entreprise.
               </p>
-              <p className="mt-6 text-sm">
-                <Link to="/login" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-                  Retour à la connexion
-                </Link>
-              </p>
+              <Link to="/login" className="mt-6 font-medium text-accent-ink hover:underline">
+                Retour à la connexion
+              </Link>
             </div>
           ) : (
             <>
-              <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
-                Demander un compte
-              </h1>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Présentez votre entreprise — Pukri valide chaque demande avant
-                l'ouverture du compte.
+              <h1 className="font-display text-xl font-semibold text-fg">Demander un accès</h1>
+              <p className="mt-1.5 text-sm text-fg-muted">
+                Présentez votre entreprise — Pukri valide chaque demande avant l'ouverture du compte.
               </p>
 
               <form onSubmit={handleSubmit} className="mt-6 space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="reqCompany" className={labelClass}>Nom de l'entreprise</label>
-                    <input id="reqCompany" required minLength={2} maxLength={120} value={form.company_name} onChange={set("company_name")} className={inputClass} placeholder="Faso Distribution SARL" />
+                    <input id="reqCompany" required minLength={2} maxLength={120} value={form.company_name} onChange={set("company_name")} className="field" placeholder="Faso Distribution SARL" />
                   </div>
                   <div>
                     <label htmlFor="reqIndustry" className={labelClass}>Secteur d'activité</label>
-                    <input id="reqIndustry" required minLength={2} maxLength={80} value={form.industry} onChange={set("industry")} className={inputClass} placeholder="Commerce, BTP, services…" />
+                    <input id="reqIndustry" required minLength={2} maxLength={80} value={form.industry} onChange={set("industry")} className="field" placeholder="Commerce, BTP, services…" />
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="reqContact" className={labelClass}>Nom du responsable</label>
-                    <input id="reqContact" required minLength={2} maxLength={120} value={form.contact_name} onChange={set("contact_name")} className={inputClass} placeholder="Awa Ouédraogo" />
+                    <input id="reqContact" required minLength={2} maxLength={120} value={form.contact_name} onChange={set("contact_name")} className="field" placeholder="Awa Ouédraogo" />
                   </div>
                   <div>
                     <label htmlFor="reqEmail" className={labelClass}>Email du responsable</label>
-                    <input id="reqEmail" type="email" required value={form.email} onChange={set("email")} className={inputClass} placeholder="vous@gmail.com" />
-                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                      Un email personnel (Gmail, Yahoo…) convient parfaitement.
-                    </p>
+                    <input id="reqEmail" type="email" required value={form.email} onChange={set("email")} className="field" placeholder="vous@entreprise.com" />
+                    <p className="mt-1 text-xs text-fg-subtle">Un email personnel (Gmail, Yahoo…) convient parfaitement.</p>
                   </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div>
                     <label htmlFor="reqPhone" className={labelClass}>Téléphone</label>
-                    <input id="reqPhone" required minLength={6} maxLength={30} value={form.phone} onChange={set("phone")} className={inputClass} placeholder="+226 70 00 00 00" />
+                    <input id="reqPhone" required minLength={6} maxLength={30} value={form.phone} onChange={set("phone")} className="field" placeholder="+226 70 00 00 00" />
                   </div>
                   <div>
                     <label htmlFor="reqCity" className={labelClass}>Ville</label>
-                    <input id="reqCity" required minLength={2} maxLength={80} value={form.city} onChange={set("city")} className={inputClass} placeholder="Ouagadougou" />
+                    <input id="reqCity" required minLength={2} maxLength={80} value={form.city} onChange={set("city")} className="field" placeholder="Ouagadougou" />
                   </div>
                   <div>
                     <label htmlFor="reqEmployees" className={labelClass}>
-                      Employés <span className="font-normal text-slate-400">(facultatif)</span>
+                      Employés <span className="font-normal text-fg-subtle">(facultatif)</span>
                     </label>
-                    <input id="reqEmployees" type="number" min={1} max={100000} value={form.employees_count} onChange={set("employees_count")} className={inputClass} placeholder="12" />
+                    <input id="reqEmployees" type="number" min={1} max={100000} value={form.employees_count} onChange={set("employees_count")} className="field tnum" placeholder="12" />
                   </div>
                 </div>
                 <div>
                   <label htmlFor="reqMessage" className={labelClass}>
-                    Message <span className="font-normal text-slate-400">(facultatif)</span>
+                    Message <span className="font-normal text-fg-subtle">(facultatif)</span>
                   </label>
-                  <textarea id="reqMessage" rows={3} maxLength={1000} value={form.message} onChange={set("message")} className={inputClass} placeholder="Vos besoins, votre contexte…" />
+                  <textarea id="reqMessage" rows={3} maxLength={1000} value={form.message} onChange={set("message")} className="field" placeholder="Vos besoins, votre contexte…" />
                 </div>
 
                 {error && <ErrorBanner>{error}</ErrorBanner>}
 
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
-                >
+                <motion.button type="submit" whileTap={{ scale: 0.985 }} disabled={submitting} className="btn btn-primary w-full">
                   {submitting ? "Envoi…" : "Envoyer ma demande"}
-                </button>
+                </motion.button>
               </form>
 
-              <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+              <p className="mt-6 text-center text-sm text-fg-muted">
                 Déjà un compte ?{" "}
-                <Link to="/login" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-                  Se connecter
-                </Link>
+                <Link to="/login" className="font-medium text-accent-ink hover:underline">Se connecter</Link>
               </p>
             </>
           )}

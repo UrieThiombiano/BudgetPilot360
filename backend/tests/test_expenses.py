@@ -5,6 +5,7 @@ import io
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import app.core.transactions as tx_service
 import app.modules.expenses.service as exp_service
 from tests.conftest import ADMIN, SIMPLE_USER
 
@@ -86,7 +87,11 @@ def _mock_client(monkeypatch, *, expense=None, expense_owner=None):
         "signedURL": "https://signed.example/receipt?token=abc"
     }
 
+    # Le CRUD/workflow vit désormais dans app.core.transactions (service partagé
+    # dépenses/recettes) ; les commentaires restent dans expenses.service. On
+    # patche les deux vers le même mock.
     monkeypatch.setattr(exp_service, "get_service_client", lambda: mock_client)
+    monkeypatch.setattr(tx_service, "get_service_client", lambda: mock_client)
     return mock_client
 
 

@@ -2,19 +2,177 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   BudgetPilot360 — Design system (tokens)
+   Palette signature indigo/violet. Tokens sémantiques nommés (jamais de gris
+   Tailwind brut dans les écrans). Dark mode réellement pensé (surfaces teintées
+   indigo, pas une inversion). L'accent est exposé en canaux RGB pour permettre
+   les opacités (rings, halos). Les montants FCFA utilisent des chiffres tabulaires.
+   ========================================================================== */
+:root {
+  /* Surfaces & fonds */
+  --bg: #f4f4f9;            /* fond de page, neutre très légèrement teinté indigo */
+  --surface: #ffffff;      /* carte */
+  --surface-2: #eeeef6;    /* surface secondaire / creux */
+  --surface-hover: #f7f7fc;
+  --overlay: 17 16 26;     /* voile des modales (RGB) */
+
+  /* Bordures */
+  --line: #e5e5ef;
+  --line-strong: #d5d5e4;
+
+  /* Texte */
+  --fg: #15141d;           /* primaire */
+  --fg-muted: #56556b;     /* secondaire */
+  --fg-subtle: #8b8aa0;    /* tertiaire / hints */
+
+  /* Accent (indigo/violet de la marque) — RGB pour opacités */
+  --accent: 79 70 229;         /* indigo-600 */
+  --accent-strong: 67 56 202;  /* indigo-700 (hover) */
+  --accent-soft: #eef0ff;      /* fond accentué clair */
+  --accent-fg: #ffffff;        /* texte sur accent */
+  --accent-ink: #4338ca;       /* texte accent sur fond clair */
+
+  /* Sémantiques */
+  --success: #15803d; --success-fg: #ffffff; --success-soft: #e9f8ef; --success-ink: #157347;
+  --warning: #b45309; --warning-soft: #fbf1df; --warning-ink: #92590a;
+  --danger:  #dc2626; --danger-fg: #ffffff;  --danger-soft: #fdecec; --danger-ink: #c02525;
+
+  /* Élévation (ombres teintées indigo, très retenues) */
+  --shadow-color: 60 50 130;
+  --ring: 79 70 229;
+}
+
+.dark {
+  --bg: #09090f;
+  --surface: #14131d;
+  --surface-2: #1c1b28;
+  --surface-hover: #1e1d2b;
+  --overlay: 3 2 8;
+
+  --line: #272635;
+  --line-strong: #353349;
+
+  --fg: #f3f3f8;
+  --fg-muted: #a2a1b6;
+  --fg-subtle: #6e6d84;
+
+  --accent: 129 140 248;       /* indigo-400, plus lumineux sur fond sombre */
+  --accent-strong: 165 180 252;
+  --accent-soft: #1c1b2e;
+  --accent-fg: #0a0912;
+  --accent-ink: #a5b4fc;
+
+  --success: #34d399; --success-fg: #052014; --success-soft: #10271d; --success-ink: #4ade80;
+  --warning: #fbbf24; --warning-soft: #2a2210; --warning-ink: #fcd34d;
+  --danger:  #f87171; --danger-fg: #2a0d0d;  --danger-soft: #2a1416; --danger-ink: #fca5a5;
+
+  --shadow-color: 0 0 0;
+  --ring: 129 140 248;
+}
+
 @layer base {
-  /* Focus clavier visible PARTOUT (boutons, liens, inputs) — a11y non négociable.
-     :focus-visible ne s'active qu'à la navigation clavier, pas au clic souris. */
-  *:focus-visible {
-    outline: 2px solid theme("colors.indigo.500");
-    outline-offset: 2px;
-    border-radius: theme("borderRadius.md");
+  html {
+    font-family: "Inter Variable", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
   }
 
-  /* Les inputs gardent leur ring Tailwind au focus : pas de double contour. */
+  /* Focus clavier visible PARTOUT — a11y non négociable, teinte accent. */
+  *:focus-visible {
+    outline: 2px solid rgb(var(--ring));
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible {
     outline: none;
+  }
+
+  /* Le sélecteur de date hérite du thème sombre pour l'icône native. */
+  .dark input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+  }
+}
+
+@layer components {
+  /* Chiffres tabulaires pour tous les montants — alignement colonne à colonne. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Carte standard : surface + bordure fine + élévation retenue. */
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 1rem;
+    box-shadow:
+      0 1px 2px rgb(var(--shadow-color) / 0.04),
+      0 1px 3px rgb(var(--shadow-color) / 0.05);
+  }
+
+  /* Champ de formulaire unifié. */
+  .field {
+    width: 100%;
+    border-radius: 0.625rem;
+    border: 1px solid var(--line-strong);
+    background-color: var(--surface);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--fg);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field::placeholder { color: var(--fg-subtle); }
+  .field:focus {
+    outline: none;
+    border-color: rgb(var(--accent));
+    box-shadow: 0 0 0 3px rgb(var(--accent) / 0.18);
+  }
+
+  /* Boutons — variantes. Le mouvement d'appui vit dans les composants Motion. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.625rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+    white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .btn-primary {
+    background-color: rgb(var(--accent));
+    color: var(--accent-fg);
+    box-shadow: 0 1px 2px rgb(var(--shadow-color) / 0.15);
+  }
+  .btn-primary:not(:disabled):hover { background-color: rgb(var(--accent-strong)); }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--fg-muted);
+    border: 1px solid var(--line-strong);
+  }
+  .btn-ghost:not(:disabled):hover {
+    background-color: var(--surface-2);
+    color: var(--fg);
+  }
+
+  .btn-danger {
+    background-color: transparent;
+    color: var(--danger-ink);
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  }
+  .btn-danger:not(:disabled):hover {
+    background-color: var(--danger-soft);
   }
 }

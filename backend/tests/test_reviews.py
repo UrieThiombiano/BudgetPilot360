@@ -4,6 +4,7 @@ transition atomique, motif obligatoire, audit, notification, notifications API."
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import app.core.transactions as tx_service
 import app.modules.expenses.service as exp_service
 import app.modules.notifications.service as notif_service
 from tests.conftest import ADMIN, SIMPLE_USER
@@ -46,6 +47,7 @@ def _mock_exp_client(monkeypatch, *, update_returns=None):
     )
 
     monkeypatch.setattr(exp_service, "get_service_client", lambda: mock_client)
+    monkeypatch.setattr(tx_service, "get_service_client", lambda: mock_client)
     return mock_client
 
 

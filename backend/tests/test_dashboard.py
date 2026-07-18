@@ -37,8 +37,17 @@ EXPENSES = [
     {"amount": "70.00", "status": "rejected", "expense_date": "2026-03-05", "category_id": "c2"},
 ]
 
+REVENUES = [
+    # confirmée, mois courant → revenue_month + revenue_year + comparison
+    {"amount": "500.00", "status": "approved", "revenue_date": "2026-07-05"},
+    # confirmée, année courante autre mois → revenue_year + comparison
+    {"amount": "300.00", "status": "approved", "revenue_date": "2026-02-15"},
+    # en attente → revenue_pending_count
+    {"amount": "80.00", "status": "pending", "revenue_date": "2026-07-20"},
+]
 
-def _mock_dashboard_client(monkeypatch, company=None, categories=None, expenses=None):
+
+def _mock_dashboard_client(monkeypatch, company=None, categories=None, expenses=None, revenues=None):
     """Chaînes utilisées par le service dashboard — toutes de la forme
     table(...).select(...).eq(...).execute()."""
     mock_client = MagicMock()
@@ -55,6 +64,9 @@ def _mock_dashboard_client(monkeypatch, company=None, categories=None, expenses=
     )
     mock_client.expenses.select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
         data=EXPENSES if expenses is None else expenses
+    )
+    mock_client.revenues.select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=REVENUES if revenues is None else revenues
     )
 
     monkeypatch.setattr(dash_service, "get_service_client", lambda: mock_client)
@@ -78,6 +90,33 @@ def test_summary_aggregates(client, as_admin, monkeypatch):
     assert body["pending_count"] == 2  # y compris l'ancienne
     assert body["pending_amount"] == 50.0
     assert body["rejected_count"] == 1
+
+
+def test_summary_revenue_and_profit(client, as_admin, monkeypatch):
+    _mock_dashboard_client(monkeypatch)
+
+    body = client.get("/dashboard/summary").json()
+
+    assert body["revenue_year"] == 800.0  # 500 + 300 confirmées 2026
+    assert body["revenue_month"] == 500.0  # juillet 2026
+    assert body["revenue_pending_count"] == 1
+    assert body["net_profit"] == 500.0  # 800 recettes - 300 dépenses approuvées
+    assert body["margin"] == 62.5  # 500 / 800 * 100
+
+    by_month = {p["month"]: p for p in body["comparison"]}
+    assert by_month["2026-07"] == {"month": "2026-07", "revenues": 500.0, "expenses": 100.0, "net": 400.0}
+    assert by_month["2026-02"] == {"month": "2026-02", "revenues": 300.0, "expenses": 200.0, "net": 100.0}
+    assert len(body["comparison"]) == 12
+
+
+def test_summary_no_revenue_margin_is_null(client, as_admin, monkeypatch):
+    _mock_dashboard_client(monkeypatch, revenues=[])
+
+    body = client.get("/dashboard/summary").json()
+
+    assert body["revenue_year"] == 0.0
+    assert body["margin"] is None
+    assert body["net_profit"] == -300.0  # 0 recette - 300 dépenses = perte
 
 
 def test_summary_monthly_trend_window(client, as_admin, monkeypatch):

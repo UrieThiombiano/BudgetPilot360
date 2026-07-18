@@ -30,7 +30,11 @@ def _mock_categories_client(monkeypatch):
     mock_client = MagicMock()
 
     def table_side_effect(name):
-        return {"categories": mock_client.categories, "expenses": mock_client.expenses}[name]
+        return {
+            "categories": mock_client.categories,
+            "expenses": mock_client.expenses,
+            "revenues": mock_client.revenues,
+        }[name]
 
     mock_client.table.side_effect = table_side_effect
     mock_client.categories.select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(
@@ -38,6 +42,10 @@ def _mock_categories_client(monkeypatch):
     )
     mock_client.expenses.select.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(
         data=APPROVED_EXPENSES
+    )
+    # Le consommé fusionne désormais dépenses ET recettes approuvées.
+    mock_client.revenues.select.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[]
     )
     mock_client.categories.insert.return_value.execute.return_value = SimpleNamespace(
         data=[{"id": "c3", "name": "Carburant", "planned_budget": 800, "created_at": None}]
@@ -78,6 +86,29 @@ def test_create_category_admin(client, as_admin, monkeypatch, silence_audit):
     insert_payload = mock_client.categories.insert.call_args.args[0]
     assert insert_payload["company_id"] == as_admin.company_id
     assert any(c["action"] == "category.created" for c in silence_audit)
+
+
+def test_list_categories_includes_type(client, as_user, monkeypatch):
+    _mock_categories_client(monkeypatch)
+
+    body = client.get("/categories").json()
+
+    assert all("type" in c for c in body)
+    assert body[0]["type"] == "expense"  # défaut rétro-compatible
+
+
+def test_create_revenue_category(client, as_admin, monkeypatch, silence_audit):
+    mock_client = _mock_categories_client(monkeypatch)
+
+    resp = client.post(
+        "/categories",
+        json={"name": "Ventes", "planned_budget": 2000, "type": "revenue"},
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["type"] == "revenue"
+    insert_payload = mock_client.categories.insert.call_args.args[0]
+    assert insert_payload["type"] == "revenue"
 
 
 def test_create_category_forbidden_for_user(client, as_user, monkeypatch):

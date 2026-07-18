@@ -107,12 +107,16 @@ def test_build_context_real_aggregates(monkeypatch):
         "companies": MagicMock(),
         "categories": MagicMock(),
         "expenses": MagicMock(),
+        "revenues": MagicMock(),
         "profiles": MagicMock(),
     }
     mock_client.table.side_effect = lambda name: tables[name]
 
     tables["companies"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
         data=[{"id": "co1", "name": "Acme", "annual_budget": "10000.00"}]
+    )
+    tables["revenues"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[]
     )
     tables["categories"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
         data=[

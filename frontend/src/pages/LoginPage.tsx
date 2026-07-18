@@ -1,11 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
 import { supabase } from "../lib/supabaseClient";
 import AuthCard from "../components/AuthCard";
 import { ErrorBanner, SuccessBanner } from "../components/ui";
-
-const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-white";
 
 type Mode = "password" | "magic";
 
@@ -63,15 +61,12 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthCard
-      title="Connexion"
-      subtitle="Pilotez votre budget en toute sérénité."
-    >
+    <AuthCard title="Content de vous revoir" subtitle="Connectez-vous pour reprendre le pilotage.">
       {/* Choix du mode de connexion */}
       <div
         role="tablist"
         aria-label="Mode de connexion"
-        className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900"
+        className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-surface-2 p-1"
       >
         {(
           [
@@ -89,10 +84,10 @@ export default function LoginPage() {
               setError(null);
               setInfo(null);
             }}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
               mode === m.id
-                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white"
-                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                ? "bg-surface text-fg shadow-card"
+                : "text-fg-muted hover:text-fg"
             }`}
           >
             {m.label}
@@ -102,7 +97,7 @@ export default function LoginPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-fg">
             Email
           </label>
           <input
@@ -112,14 +107,14 @@ export default function LoginPage() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className={inputClass}
-            placeholder="vous@gmail.com"
+            className="field"
+            placeholder="vous@entreprise.com"
           />
         </div>
 
         {mode === "password" && (
           <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-fg">
               Mot de passe
             </label>
             <input
@@ -129,14 +124,14 @@ export default function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className={inputClass}
-              placeholder="••••••••"
+              className="field"
+              placeholder="Votre mot de passe"
             />
           </div>
         )}
 
         {mode === "magic" && (
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-fg-muted">
             Vous recevrez un lien de connexion sécurisé par email — aucun mot de
             passe à saisir.
           </p>
@@ -145,23 +140,24 @@ export default function LoginPage() {
         {error && <ErrorBanner>{error}</ErrorBanner>}
         {info && <SuccessBanner>{info}</SuccessBanner>}
 
-        <button
+        <motion.button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
+          whileTap={{ scale: 0.985 }}
+          className="btn btn-primary w-full shadow-accent-glow"
         >
           {submitting
-            ? "Envoi…"
+            ? "Un instant…"
             : mode === "password"
               ? "Se connecter"
               : "Recevoir le lien de connexion"}
-        </button>
+        </motion.button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+      <p className="mt-6 text-center text-sm text-fg-muted">
         Votre entreprise n'a pas encore de compte ?{" "}
-        <Link to="/request-account" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-          Demander un compte
+        <Link to="/request-account" className="font-semibold text-accent-ink hover:underline">
+          Demander un accès
         </Link>
       </p>
     </AuthCard>

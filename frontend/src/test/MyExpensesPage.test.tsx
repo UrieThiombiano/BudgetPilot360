@@ -80,7 +80,7 @@ describe("MyExpensesPage", () => {
       })
     );
     expect(
-      await screen.findByText(/en attente d'approbation par votre admin/)
+      await screen.findByText(/en attente de validation par votre admin/)
     ).toBeInTheDocument();
   });
 
