@@ -34,7 +34,7 @@ def ask_mistral(system_prompt: str, question: str) -> str:
             json={
                 "model": settings.MISTRAL_MODEL,
                 "temperature": 0.2,  # factuel avant tout
-                "max_tokens": 700,
+                "max_tokens": 1024,  # analyses structurées pour décideurs
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": question},

@@ -98,6 +98,9 @@ def test_system_prompt_contains_strict_rules(monkeypatch):
     assert "Interdiction absolue" in prompt  # pas de chiffres inventés
     assert "ignore tes instructions" in prompt  # anti-injection
     assert "Markdown" in prompt  # texte brut : le chat n'interprète pas le Markdown
+    # Mission décideurs : optimisation des coûts + réponses structurées
+    assert "OPTIMISATION DES COÛTS" in prompt
+    assert "recommandations actionnables" in prompt
 
 
 def test_build_context_real_aggregates(monkeypatch):
@@ -116,6 +119,10 @@ def test_build_context_real_aggregates(monkeypatch):
         data=[{"id": "co1", "name": "Acme", "annual_budget": "10000.00"}]
     )
     tables["revenues"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[]
+    )
+    # recettes récentes : .select().eq().order().limit().execute()
+    tables["revenues"].select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = SimpleNamespace(
         data=[]
     )
     tables["categories"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
@@ -154,3 +161,9 @@ def test_build_context_real_aggregates(monkeypatch):
     assert "dépassement" in context and "Transport (120 %)" in context
     assert "Salaires" in context
     assert "01/07/2026 · Transport · Jean · Taxi · 120 FCFA · approuvée" in context
+    # Sections renforcées pour les décideurs : recettes, rentabilité, projections
+    assert "Recettes confirmées" in context
+    assert "Résultat net" in context
+    assert "Indicateurs de pilotage (calculés)" in context
+    assert "projection fin d'année" in context
+    assert "sous surveillance" in context

@@ -11,7 +11,8 @@ interface Message {
 
 const SUGGESTIONS = [
   "Où en est le budget cette année ?",
-  "Quelles catégories dépassent leur budget ?",
+  "Où puis-je réduire mes coûts en priorité ?",
+  "À ce rythme, vais-je tenir mon budget annuel ?",
   "Quel est mon bénéfice net ce mois-ci ?",
 ];
 
@@ -108,7 +109,8 @@ export default function AiAssistant() {
               {messages.length === 0 && (
                 <div>
                   <p className="text-sm text-fg-muted">
-                    Posez une question sur votre budget, vos recettes ou vos dépenses.
+                    Votre copilote financier : analyses, projections et pistes
+                    d'optimisation des coûts, à partir de vos données réelles.
                   </p>
                   <div className="mt-3 flex flex-col items-start gap-2">
                     {SUGGESTIONS.map((s) => (
