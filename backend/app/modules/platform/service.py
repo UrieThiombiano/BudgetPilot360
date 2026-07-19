@@ -16,6 +16,7 @@ Les actions d'abonnement sont auditées avec le company_id de l'entreprise
 CIBLE, pour que l'historique apparaisse dans l'audit de cette entreprise.
 """
 
+import logging
 from datetime import date, timedelta
 
 from fastapi import HTTPException, status
@@ -23,7 +24,10 @@ from fastapi import HTTPException, status
 from app.core import audit
 from app.core.security import CurrentUser
 from app.core.supabase_client import get_service_client
+from app.core.transactions import RECEIPTS_BUCKET
 from app.modules.team.service import MAX_USERS_PER_COMPANY
+
+logger = logging.getLogger(__name__)
 
 
 def _month_start_iso() -> str:
@@ -195,3 +199,106 @@ def set_subscription(actor: CurrentUser, company_id: str, action: str) -> dict:
         details={"company_name": company.get("name")},
     )
     return company
+
+
+def _purge_storage_prefix(client, prefix: str) -> None:
+    """Supprime récursivement les justificatifs d'un tenant ({company_id}/…).
+    Best-effort : un échec Storage ne doit pas laisser la DB à moitié purgée."""
+    try:
+        entries = client.storage.from_(RECEIPTS_BUCKET).list(prefix) or []
+        files: list[str] = []
+        for entry in entries:
+            name = entry.get("name")
+            if not name:
+                continue
+            path = f"{prefix}/{name}"
+            # Supabase Storage : une entrée sans `id` est un « dossier » virtuel.
+            if entry.get("id"):
+                files.append(path)
+            else:
+                _purge_storage_prefix(client, path)
+        if files:
+            client.storage.from_(RECEIPTS_BUCKET).remove(files)
+    except Exception:
+        logger.warning("Purge Storage incomplète pour %s", prefix, exc_info=True)
+
+
+def delete_company(actor: CurrentUser, company_id: str) -> None:
+    """Suppression DÉFINITIVE d'un tenant : données métier, profils, comptes
+    Auth, justificatifs, entreprise. Irréversible — réservée au super_admin,
+    confirmée côté UI par la saisie du nom de l'entreprise.
+
+    Ordre imposé par les FK : les tables qui référencent `profiles` en RESTRICT
+    (expenses, expense_comments, recurring_*) doivent partir AVANT les profils,
+    et `companies.owner_id` / `registration_requests.company_id` (sans action)
+    doivent être détachés AVANT l'entreprise. L'audit_logs du tenant part en
+    cascade avec l'entreprise : la trace de la suppression vit dans les logs
+    applicatifs (le tenant n'existant plus, aucune ligne d'audit ne peut lui
+    être rattachée).
+    """
+    client = get_service_client()
+    rows = (
+        client.table("companies").select("id, name").eq("id", company_id).execute()
+    ).data or []
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Entreprise introuvable."
+        )
+    company_name = rows[0].get("name")
+
+    profiles = (
+        client.table("profiles").select("id, role").eq("company_id", company_id).execute()
+    ).data or []
+    if any(p["role"] == "super_admin" for p in profiles):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cette entreprise contient un profil super_admin — suppression refusée.",
+        )
+
+    # 1. Détacher les références sans cascade vers ce qui va disparaître.
+    client.table("companies").update({"owner_id": None}).eq("id", company_id).execute()
+    client.table("registration_requests").update({"company_id": None}).eq(
+        "company_id", company_id
+    ).execute()
+
+    # 2. Données métier, dans l'ordre des dépendances (RESTRICT vers profiles).
+    for table in (
+        "expense_comments",
+        "notifications",
+        "expenses",
+        "revenues",
+        "recurring_expenses",
+        "recurring_revenues",
+        "categories",
+    ):
+        try:
+            client.table(table).delete().eq("company_id", company_id).execute()
+        except Exception:
+            # Table potentiellement absente sur un ancien schéma — la suppression
+            # de l'entreprise échouera de toute façon si des lignes bloquent.
+            logger.warning(
+                "Purge de %s impossible pour %s", table, company_id, exc_info=True
+            )
+
+    # 3. Comptes Auth (cascade → profiles). Un échec Auth ne doit pas laisser un
+    #    profil orphelin : suppression directe du profil en secours.
+    for p in profiles:
+        try:
+            client.auth.admin.delete_user(p["id"])
+        except Exception:
+            logger.warning(
+                "Suppression du compte Auth %s impossible", p["id"], exc_info=True
+            )
+    client.table("profiles").delete().eq("company_id", company_id).execute()
+
+    # 4. Justificatifs du tenant (best-effort), puis l'entreprise elle-même
+    #    (audit_logs du tenant part en cascade).
+    _purge_storage_prefix(client, company_id)
+    client.table("companies").delete().eq("id", company_id).execute()
+
+    logger.info(
+        "Tenant supprimé définitivement : %s (%s) par %s",
+        company_name,
+        company_id,
+        actor.id,
+    )

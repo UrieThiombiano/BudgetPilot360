@@ -16,6 +16,26 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+/** Clé localStorage du motif de blocage, affiché sur l'écran de connexion. */
+export const BLOCKED_MESSAGE_KEY = "bp360:blocked-reason";
+
+// Compte bloqué côté backend : 402 = abonnement de l'entreprise suspendu (Pukri).
+// On déconnecte immédiatement et on mémorise le motif pour l'écran de connexion —
+// sans quoi la session resterait ouverte sur des écrans qui échouent tous.
+api.interceptors.response.use(undefined, async (error) => {
+  if (axios.isAxiosError(error) && error.response?.status === 402) {
+    const detail = error.response.data?.detail;
+    localStorage.setItem(
+      BLOCKED_MESSAGE_KEY,
+      typeof detail === "string"
+        ? detail
+        : "L'abonnement de votre entreprise est suspendu. Contactez Pukri AI Systems."
+    );
+    await supabase.auth.signOut();
+  }
+  return Promise.reject(error);
+});
+
 /** Extrait le message d'erreur renvoyé par FastAPI ({ detail: "..." }). */
 export function apiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {

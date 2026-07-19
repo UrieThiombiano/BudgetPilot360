@@ -2,16 +2,25 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { supabase } from "../lib/supabaseClient";
+import { BLOCKED_MESSAGE_KEY } from "../lib/api";
 import AuthCard from "../components/AuthCard";
 import { ErrorBanner, SuccessBanner } from "../components/ui";
 
 type Mode = "password" | "magic";
 
+/** Motif de blocage déposé par l'intercepteur API (abonnement suspendu) :
+ * affiché une seule fois, à l'arrivée sur l'écran de connexion. */
+function consumeBlockedMessage(): string | null {
+  const message = localStorage.getItem(BLOCKED_MESSAGE_KEY);
+  if (message) localStorage.removeItem(BLOCKED_MESSAGE_KEY);
+  return message;
+}
+
 export default function LoginPage() {
   const [mode, setMode] = useState<Mode>("password");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(consumeBlockedMessage);
   const [info, setInfo] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 

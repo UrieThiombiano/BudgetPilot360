@@ -43,3 +43,14 @@ async def set_subscription(
         subscription_status=company["subscription_status"],
         users_count=0,
     )
+
+
+@router.delete("/companies/{company_id}", status_code=204)
+async def delete_company(
+    company_id: str,
+    user: CurrentUser = Depends(super_admin_only),
+):
+    """Supprime DÉFINITIVEMENT une entreprise cliente : données métier, profils,
+    comptes Auth, justificatifs. Irréversible — l'UI exige la saisie du nom."""
+    service.delete_company(user, company_id)
+    return None

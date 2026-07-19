@@ -1,8 +1,10 @@
 /**
- * Dépenses automatiques (admin) — licences, abonnements, loyers…
- * L'admin définit catégorie + montant + jour du mois + nombre de mois ;
- * chaque échéance est décomptée automatiquement (dépense approuvée, sans
- * validation), puis l'automatisation s'arrête d'elle-même.
+ * Automatisations mensuelles (admin uniquement, adjoint compris) — un seul
+ * composant pour les deux familles, paramétré par config :
+ * - Dépenses automatiques : chaque échéance crée une dépense À VALIDER
+ *   (workflow d'approbation standard).
+ * - Recettes attendues : chaque échéance crée une recette confirmée (les
+ *   recettes sont comptées sans validation). Invisible pour les users.
  */
 import { useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
@@ -26,6 +28,64 @@ interface Recurring {
   next_due: string;
 }
 
+export interface RecurringConfig {
+  endpoint: string; // "/recurring-expenses" | "/recurring-revenues"
+  queryKey: string;
+  categoryType: "expense" | "revenue";
+  /** Listes à rafraîchir après matérialisation (une échéance a pu être générée). */
+  extraInvalidateKeys: string[][];
+  title: string;
+  subtitle: string;
+  emptyText: string;
+  submitLabel: string;
+  /** Message de succès à la création ; `firstDone` = première échéance déjà générée. */
+  createdMessage: (firstDone: boolean, nextDueFr: string) => string;
+  deletedMessage: string;
+  noCategoryError: string;
+  descPlaceholder: string;
+  amountPlaceholder: string;
+}
+
+export const RECURRING_EXPENSES_CONFIG: RecurringConfig = {
+  endpoint: "/recurring-expenses",
+  queryKey: "recurring-expenses",
+  categoryType: "expense",
+  extraInvalidateKeys: [["my-expenses"], ["pending-expenses"]],
+  title: "Dépenses automatiques",
+  subtitle:
+    "Licences, abonnements, loyers… chaque échéance crée une dépense à valider dans « Dépenses à valider », puis l'automatisation s'arrête d'elle-même.",
+  emptyText:
+    "Aucune dépense automatique — créez la première ci-dessous (ex : licence logicielle mensuelle).",
+  submitLabel: "Activer le décompte automatique",
+  createdMessage: (firstDone, nextDueFr) =>
+    `Automatisation créée — ${firstDone ? "première échéance déjà générée, prochaine" : "première échéance"} le ${nextDueFr}. Chaque échéance devra être validée dans « Dépenses à valider ».`,
+  deletedMessage:
+    "Automatisation supprimée — les dépenses déjà générées restent dans l'historique.",
+  noCategoryError: "Choisissez une catégorie de dépense.",
+  descPlaceholder: "Ex : licence comptabilité, loyer bureau…",
+  amountPlaceholder: "45000",
+};
+
+export const RECURRING_REVENUES_CONFIG: RecurringConfig = {
+  endpoint: "/recurring-revenues",
+  queryKey: "recurring-revenues",
+  categoryType: "revenue",
+  extraInvalidateKeys: [["my-revenues"]],
+  title: "Recettes attendues",
+  subtitle:
+    "Loyers perçus, abonnements clients, mensualités… comptées automatiquement chaque mois. Visibles uniquement par vous et votre adjoint.",
+  emptyText:
+    "Aucune recette attendue — créez la première ci-dessous (ex : loyer mensuel perçu).",
+  submitLabel: "Activer la recette automatique",
+  createdMessage: (firstDone, nextDueFr) =>
+    `Automatisation créée — ${firstDone ? "première échéance déjà comptée, prochaine" : "première échéance"} le ${nextDueFr}. Chaque recette est confirmée automatiquement.`,
+  deletedMessage:
+    "Automatisation supprimée — les recettes déjà comptées restent dans l'historique.",
+  noCategoryError: "Choisissez une catégorie de recette.",
+  descPlaceholder: "Ex : loyer boutique, abonnement client…",
+  amountPlaceholder: "150000",
+};
+
 const labelClass = "mb-1.5 block text-xs font-medium text-fg-muted";
 const frDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR");
 
@@ -37,7 +97,7 @@ function statusBadge(r: Recurring) {
     : { label: "En pause", cls: "bg-warning-soft text-warning-ink" };
 }
 
-export default function RecurringExpenses() {
+export default function RecurringAutomations({ config }: { config: RecurringConfig }) {
   const queryClient = useQueryClient();
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -49,24 +109,26 @@ export default function RecurringExpenses() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const { data: categories } = useQuery({
-    queryKey: ["categories", "expense"],
+    queryKey: ["categories", config.categoryType],
     queryFn: async () =>
-      (await api.get<Category[]>("/categories", { params: { type: "expense" } })).data,
+      (await api.get<Category[]>("/categories", { params: { type: config.categoryType } })).data,
   });
   const { data: items, isLoading } = useQuery({
-    queryKey: ["recurring-expenses"],
-    queryFn: async () => (await api.get<Recurring[]>("/recurring-expenses")).data,
+    queryKey: [config.queryKey],
+    queryFn: async () => (await api.get<Recurring[]>(config.endpoint)).data,
   });
 
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ["recurring-expenses"] });
-    // La matérialisation a pu décompter une échéance immédiatement.
-    void queryClient.invalidateQueries({ queryKey: ["my-expenses"] });
+    void queryClient.invalidateQueries({ queryKey: [config.queryKey] });
+    // La matérialisation a pu générer une échéance immédiatement.
+    for (const key of config.extraInvalidateKeys) {
+      void queryClient.invalidateQueries({ queryKey: key });
+    }
   };
 
   const createRecurring = useMutation({
     mutationFn: async () =>
-      (await api.post<Recurring>("/recurring-expenses", {
+      (await api.post<Recurring>(config.endpoint, {
         category_id: categoryId,
         amount: Number(amount),
         description: description.trim(),
@@ -77,9 +139,7 @@ export default function RecurringExpenses() {
     onSuccess: (created) => {
       setAmount("");
       setDescription("");
-      setMessage(
-        `Automatisation créée — ${created.months_done > 0 ? "première échéance déjà décomptée, prochaine" : "première échéance"} le ${frDate(created.next_due)}. Aucune validation nécessaire.`
-      );
+      setMessage(config.createdMessage(created.months_done > 0, frDate(created.next_due)));
       refresh();
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -87,7 +147,7 @@ export default function RecurringExpenses() {
 
   const toggleActive = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) =>
-      (await api.patch(`/recurring-expenses/${id}`, { active })).data,
+      (await api.patch(`${config.endpoint}/${id}`, { active })).data,
     onSuccess: (_d, vars) => {
       setMessage(vars.active ? "Décompte repris." : "Décompte mis en pause.");
       refresh();
@@ -96,10 +156,10 @@ export default function RecurringExpenses() {
   });
 
   const removeRecurring = useMutation({
-    mutationFn: async (id: string) => (await api.delete(`/recurring-expenses/${id}`)).data,
+    mutationFn: async (id: string) => (await api.delete(`${config.endpoint}/${id}`)).data,
     onSuccess: () => {
       setConfirmDeleteId(null);
-      setMessage("Automatisation supprimée — les dépenses déjà décomptées restent dans l'historique.");
+      setMessage(config.deletedMessage);
       refresh();
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -110,7 +170,7 @@ export default function RecurringExpenses() {
     setError(null);
     setMessage(null);
     if (!categoryId) {
-      setError("Choisissez une catégorie de dépense.");
+      setError(config.noCategoryError);
       return;
     }
     createRecurring.mutate();
@@ -123,10 +183,8 @@ export default function RecurringExpenses() {
           <Repeat size={16} strokeWidth={2} />
         </span>
         <div>
-          <h2 className="font-display text-base font-semibold text-fg">Dépenses automatiques</h2>
-          <p className="text-xs text-fg-muted">
-            Licences, abonnements, loyers… décomptés chaque mois sans validation, puis arrêtés automatiquement.
-          </p>
+          <h2 className="font-display text-base font-semibold text-fg">{config.title}</h2>
+          <p className="text-xs text-fg-muted">{config.subtitle}</p>
         </div>
       </div>
 
@@ -224,37 +282,35 @@ export default function RecurringExpenses() {
         </ul>
       )}
       {items && items.length === 0 && (
-        <p className="mt-4 text-sm text-fg-muted">
-          Aucune dépense automatique — créez la première ci-dessous (ex : licence logicielle mensuelle).
-        </p>
+        <p className="mt-4 text-sm text-fg-muted">{config.emptyText}</p>
       )}
 
       {/* Création */}
       <form onSubmit={handleSubmit} className="mt-5 space-y-4 border-t border-line pt-5">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="lg:col-span-2">
-            <label htmlFor="recDesc" className={labelClass}>Libellé</label>
-            <input id="recDesc" required minLength={2} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} className="field" placeholder="Ex : licence comptabilité, loyer bureau…" />
+            <label htmlFor={`recDesc-${config.queryKey}`} className={labelClass}>Libellé</label>
+            <input id={`recDesc-${config.queryKey}`} required minLength={2} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} className="field" placeholder={config.descPlaceholder} />
           </div>
           <div>
-            <label htmlFor="recAmount" className={labelClass}>Montant (FCFA)</label>
-            <input id="recAmount" type="number" min="0.01" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className="field tnum" placeholder="45000" />
+            <label htmlFor={`recAmount-${config.queryKey}`} className={labelClass}>Montant (FCFA)</label>
+            <input id={`recAmount-${config.queryKey}`} type="number" min="0.01" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} className="field tnum" placeholder={config.amountPlaceholder} />
           </div>
           <div>
-            <label htmlFor="recCategory" className={labelClass}>Catégorie</label>
-            <select id="recCategory" required value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="field">
+            <label htmlFor={`recCategory-${config.queryKey}`} className={labelClass}>Catégorie</label>
+            <select id={`recCategory-${config.queryKey}`} required value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="field">
               <option value="">Sélectionner…</option>
               {(categories ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="recDay" className={labelClass}>Jour du mois</label>
-              <input id="recDay" type="number" min={1} max={31} required value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} className="field tnum" />
+              <label htmlFor={`recDay-${config.queryKey}`} className={labelClass}>Jour du mois</label>
+              <input id={`recDay-${config.queryKey}`} type="number" min={1} max={31} required value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} className="field tnum" />
             </div>
             <div>
-              <label htmlFor="recMonths" className={labelClass}>Nb de mois</label>
-              <input id="recMonths" type="number" min={1} max={120} required value={monthsTotal} onChange={(e) => setMonthsTotal(e.target.value)} className="field tnum" />
+              <label htmlFor={`recMonths-${config.queryKey}`} className={labelClass}>Nb de mois</label>
+              <input id={`recMonths-${config.queryKey}`} type="number" min={1} max={120} required value={monthsTotal} onChange={(e) => setMonthsTotal(e.target.value)} className="field tnum" />
             </div>
           </div>
         </div>
@@ -264,7 +320,7 @@ export default function RecurringExpenses() {
 
         <motion.button type="submit" whileTap={{ scale: 0.985 }} disabled={createRecurring.isPending} className="btn btn-primary">
           <Repeat size={15} strokeWidth={2.25} />
-          {createRecurring.isPending ? "Création…" : "Activer le décompte automatique"}
+          {createRecurring.isPending ? "Création…" : config.submitLabel}
         </motion.button>
       </form>
     </section>

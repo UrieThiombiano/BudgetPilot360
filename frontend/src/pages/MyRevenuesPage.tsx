@@ -1,5 +1,6 @@
 import { HandCoins } from "lucide-react";
 import TransactionsPage, { type TxConfig } from "../components/TransactionsPage";
+import RecurringAutomations, { RECURRING_REVENUES_CONFIG } from "../components/RecurringAutomations";
 
 const REVENUE_CONFIG: TxConfig = {
   kind: "revenue",
@@ -31,5 +32,12 @@ const REVENUE_CONFIG: TxConfig = {
 };
 
 export default function MyRevenuesPage() {
-  return <TransactionsPage config={REVENUE_CONFIG} />;
+  // Les recettes attendues (loyers, abonnements clients…) sont réservées aux
+  // admins (adjoint compris) — les users saisissent uniquement leurs recettes.
+  return (
+    <TransactionsPage
+      config={REVENUE_CONFIG}
+      adminExtra={<RecurringAutomations config={RECURRING_REVENUES_CONFIG} />}
+    />
+  );
 }

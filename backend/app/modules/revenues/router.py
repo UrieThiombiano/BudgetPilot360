@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile
 
 from app.core.security import CurrentUser, get_current_user
+from app.modules.recurring import service as recurring
 from app.modules.revenues import service
 from app.modules.revenues.schemas import ReceiptUrlOut, RevenueCreate, RevenueOut
 
@@ -36,6 +37,9 @@ async def create_revenue(
 @router.get("/mine", response_model=list[RevenueOut])
 async def list_my_revenues(user: CurrentUser = Depends(get_current_user)):
     """Les recettes de l'utilisateur courant."""
+    # Catch-up des transactions automatiques dues (best-effort, ne lève jamais).
+    if user.company_id:
+        recurring.materialize_due(user.company_id)
     return [_revenue_out(r) for r in service.list_my_revenues(user)]
 
 

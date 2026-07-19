@@ -87,7 +87,7 @@ async def get_current_user(
     client = get_service_client()
     resp = (
         client.table("profiles")
-        .select("company_id, role, job_title")
+        .select("company_id, role, job_title, removed_at, companies(subscription_status)")
         .eq("id", user_id)
         .execute()
     )
@@ -97,6 +97,24 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Profil introuvable")
 
     profile = resp.data[0]
+
+    # Un utilisateur retiré (désactivation douce, sql/009) garde un JWT valide
+    # jusqu'à expiration : on le bloque ici, à chaque requête.
+    if profile.get("removed_at"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Votre accès a été désactivé par un administrateur de votre entreprise.",
+        )
+
+    # Entreprise suspendue par Pukri → plus AUCUN accès pour ses membres
+    # (le super_admin, sans entreprise, n'est jamais concerné).
+    company = profile.get("companies") or {}
+    if profile["role"] != "super_admin" and company.get("subscription_status") == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="L'abonnement de votre entreprise est suspendu. Contactez Pukri AI Systems.",
+        )
+
     return CurrentUser(
         id=user_id,
         email=payload.get("email"),

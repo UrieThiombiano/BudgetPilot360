@@ -36,9 +36,24 @@ def _mock_platform_client(monkeypatch):
         "revenues": MagicMock(),
         "audit_logs": MagicMock(),
         "registration_requests": MagicMock(),
+        # Tables purgées par la suppression définitive d'un tenant
+        "expense_comments": MagicMock(),
+        "notifications": MagicMock(),
+        "recurring_expenses": MagicMock(),
+        "recurring_revenues": MagicMock(),
+        "categories": MagicMock(),
     }
     mock_client.table.side_effect = lambda name: tables[name]
     mock_client.tables = tables
+
+    # Suppression définitive : lookup entreprise + profils du tenant, Storage vide
+    tables["companies"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[COMPANIES[0]]
+    )
+    tables["profiles"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[p for p in PROFILES if p["company_id"] == "co1"]
+    )
+    mock_client.storage.from_.return_value.list.return_value = []
 
     tables["companies"].select.return_value.order.return_value.execute.return_value = SimpleNamespace(
         data=COMPANIES
@@ -166,6 +181,46 @@ def test_subscription_invalid_action(client, as_super_admin, monkeypatch):
     assert resp.status_code == 422
 
 
+def test_delete_company_purges_everything(client, as_super_admin, monkeypatch):
+    """Suppression DÉFINITIVE d'un tenant : données métier, profils, comptes
+    Auth, entreprise — dans l'ordre imposé par les FK."""
+    mock_client = _mock_platform_client(monkeypatch)
+
+    resp = client.delete("/platform/companies/co1")
+
+    assert resp.status_code == 204
+    # Références sans cascade détachées avant la purge
+    assert {"owner_id": None} in [
+        c.args[0] for c in mock_client.tables["companies"].update.call_args_list
+    ]
+    assert {"company_id": None} in [
+        c.args[0] for c in mock_client.tables["registration_requests"].update.call_args_list
+    ]
+    # Données métier purgées (RESTRICT vers profiles obligent : avant les profils)
+    for table in (
+        "expense_comments", "notifications", "expenses", "revenues",
+        "recurring_expenses", "recurring_revenues", "categories", "profiles",
+    ):
+        mock_client.tables[table].delete.assert_called_once()
+    # Chaque compte Auth du tenant est supprimé (cascade → profil)
+    deleted_auth = {c.args[0] for c in mock_client.auth.admin.delete_user.call_args_list}
+    assert deleted_auth == {"a1", "u1", "u2"}
+    # L'entreprise part en dernier
+    mock_client.tables["companies"].delete.assert_called_once()
+
+
+def test_delete_company_not_found(client, as_super_admin, monkeypatch):
+    mock_client = _mock_platform_client(monkeypatch)
+    mock_client.tables["companies"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[]
+    )
+
+    resp = client.delete("/platform/companies/inconnue")
+
+    assert resp.status_code == 404
+    mock_client.tables["companies"].delete.assert_not_called()
+
+
 def test_platform_forbidden_for_admin(client, as_admin, monkeypatch):
     """Un admin d'entreprise n'accède JAMAIS à l'espace plateforme (RBAC explicite)."""
     mock_client = _mock_platform_client(monkeypatch)
@@ -176,6 +231,7 @@ def test_platform_forbidden_for_admin(client, as_admin, monkeypatch):
         client.post("/platform/companies/co1/subscription", json={"action": "suspend"}).status_code
         == 403
     )
+    assert client.delete("/platform/companies/co1").status_code == 403
     mock_client.table.assert_not_called()
 
 

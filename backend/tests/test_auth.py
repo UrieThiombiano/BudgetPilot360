@@ -90,6 +90,51 @@ def test_me_without_token(client):
     assert resp.status_code in (401, 403)
 
 
+def test_me_suspended_company_is_402(client, monkeypatch):
+    """Entreprise suspendue par Pukri → plus aucun accès pour ses membres."""
+    _mock_profile_lookup(
+        monkeypatch,
+        rows=[
+            {
+                "company_id": "11111111-1111-1111-1111-111111111111",
+                "role": "admin",
+                "companies": {"subscription_status": "suspended"},
+            }
+        ],
+    )
+
+    resp = client.get(
+        "/profiles/me",
+        headers={"Authorization": f"Bearer {_make_token()}"},
+    )
+
+    assert resp.status_code == 402
+    assert "suspendu" in resp.json()["detail"]
+
+
+def test_me_removed_user_is_403(client, monkeypatch):
+    """Utilisateur retiré (désactivation douce) : bloqué même avec un JWT encore valide."""
+    _mock_profile_lookup(
+        monkeypatch,
+        rows=[
+            {
+                "company_id": "11111111-1111-1111-1111-111111111111",
+                "role": "user",
+                "removed_at": "2026-07-01T00:00:00+00:00",
+                "companies": {"subscription_status": "active"},
+            }
+        ],
+    )
+
+    resp = client.get(
+        "/profiles/me",
+        headers={"Authorization": f"Bearer {_make_token()}"},
+    )
+
+    assert resp.status_code == 403
+    assert "désactivé" in resp.json()["detail"]
+
+
 def test_me_missing_profile_is_403(client, monkeypatch):
     _mock_profile_lookup(monkeypatch, rows=[])
 

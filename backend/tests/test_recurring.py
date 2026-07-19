@@ -1,5 +1,8 @@
-"""Tests des dépenses automatiques : CRUD admin-only, calcul des échéances,
-matérialisation catch-up (rétroactive, idempotente, arrêt automatique)."""
+"""Tests des transactions automatiques (dépenses ET recettes) : CRUD admin-only,
+calcul des échéances, matérialisation catch-up (rétroactive, idempotente, arrêt
+automatique). Décision produit : une dépense automatique est générée en
+`pending` (validation admin obligatoire) ; une recette automatique est
+confirmée dès sa génération (règle des recettes)."""
 
 from datetime import date
 from types import SimpleNamespace
@@ -11,7 +14,8 @@ import app.modules.recurring.service as recurring_service
 # la matérialisation (même patron que test_alerts).
 REAL_MATERIALIZE = recurring_service.materialize_due
 
-CATEGORY = {"id": "cat1", "name": "Logiciels", "type": "expense", "company_id": None}
+EXPENSE_CATEGORY = {"id": "cat1", "name": "Logiciels", "type": "expense", "company_id": None}
+REVENUE_CATEGORY = {"id": "cat1", "name": "Loyers perçus", "type": "revenue", "company_id": None}
 
 RECURRING_ROW = {
     "id": "rec1",
@@ -44,42 +48,73 @@ def _row(as_admin, **over):
     return base
 
 
-def _mock_client(monkeypatch, *, recurring_rows=None, category=None, existing_expense=None):
+def _mock_client(
+    monkeypatch,
+    *,
+    recurring_rows=None,
+    recurring_revenue_rows=None,
+    category=None,
+    existing_tx=None,
+    admins=None,
+):
     """Mocks par table (chaînes distinctes par usage) :
-    - categories : select().eq(id).eq(company).execute() [vérif création]
-                   select().eq(company).execute()        [noms]
-    - recurring  : insert / select().eq(id) / select().eq().order() [liste]
-                   select().eq().eq().lte() [échéances dues] / update / delete
-    - expenses   : select().eq().eq() [idempotence] / insert
+    - categories          : select().eq(id).eq(company).execute() [vérif création]
+                            select().eq(company).execute()        [noms]
+    - recurring_expenses / recurring_revenues :
+                            insert / select().eq(id) / select().eq().order() [liste]
+                            select().eq().eq().lte() [échéances dues] / update / delete
+    - expenses / revenues : select().eq().eq() [idempotence] / insert
+    - profiles            : select().eq().eq().is_() [admins à notifier]
     """
     mock_client = MagicMock()
-    tables = {"categories": MagicMock(), "recurring_expenses": MagicMock(), "expenses": MagicMock()}
+    tables = {
+        "categories": MagicMock(),
+        "recurring_expenses": MagicMock(),
+        "recurring_revenues": MagicMock(),
+        "expenses": MagicMock(),
+        "revenues": MagicMock(),
+        "profiles": MagicMock(),
+    }
     mock_client.table.side_effect = lambda name: tables[name]
     mock_client.tables = tables
 
-    cat = category if category is not None else CATEGORY
+    cat = category if category is not None else EXPENSE_CATEGORY
     tables["categories"].select.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(
         data=[cat] if cat else []
     )
     tables["categories"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
-        data=[{"id": "cat1", "name": "Logiciels"}]
+        data=[{"id": "cat1", "name": cat.get("name", "Logiciels") if cat else "Logiciels"}]
     )
 
-    rows = recurring_rows or []
-    rec = tables["recurring_expenses"]
-    rec.insert.return_value.execute.return_value = SimpleNamespace(data=[rows[0] if rows else RECURRING_ROW])
-    rec.select.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=rows)
-    rec.select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(data=rows)
-    rec.select.return_value.eq.return_value.eq.return_value.lte.return_value.execute.return_value = SimpleNamespace(
-        data=rows
-    )
-    rec.update.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
-    rec.delete.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
+    for table_name, rows in (
+        ("recurring_expenses", recurring_rows or []),
+        ("recurring_revenues", recurring_revenue_rows or []),
+    ):
+        rec = tables[table_name]
+        rec.insert.return_value.execute.return_value = SimpleNamespace(
+            data=[rows[0] if rows else RECURRING_ROW]
+        )
+        rec.select.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=rows)
+        rec.select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(
+            data=rows
+        )
+        rec.select.return_value.eq.return_value.eq.return_value.lte.return_value.execute.return_value = SimpleNamespace(
+            data=rows
+        )
+        rec.update.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
+        rec.delete.return_value.eq.return_value.execute.return_value = SimpleNamespace(data=[])
 
-    tables["expenses"].select.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(
-        data=[existing_expense] if existing_expense else []
+    for tx_table, new_id in (("expenses", "e-new"), ("revenues", "r-new")):
+        tables[tx_table].select.return_value.eq.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+            data=[existing_tx] if existing_tx else []
+        )
+        tables[tx_table].insert.return_value.execute.return_value = SimpleNamespace(
+            data=[{"id": new_id}]
+        )
+
+    tables["profiles"].select.return_value.eq.return_value.eq.return_value.is_.return_value.execute.return_value = SimpleNamespace(
+        data=admins if admins is not None else [{"id": "admin-1"}]
     )
-    tables["expenses"].insert.return_value.execute.return_value = SimpleNamespace(data=[])
 
     monkeypatch.setattr(recurring_service, "get_service_client", lambda: mock_client)
     return mock_client
@@ -131,7 +166,7 @@ def test_create_forbidden_for_user(client, as_user, monkeypatch):
 
 
 def test_create_rejects_revenue_category(client, as_admin, monkeypatch):
-    _mock_client(monkeypatch, category={**CATEGORY, "type": "revenue"})
+    _mock_client(monkeypatch, category={**EXPENSE_CATEGORY, "type": "revenue"})
 
     resp = client.post("/recurring-expenses", json=CREATE_PAYLOAD)
 
@@ -204,13 +239,56 @@ def test_delete_recurring(client, as_admin, monkeypatch, silence_audit):
     assert any(c["action"] == "recurring.deleted" for c in silence_audit)
 
 
+# --- CRUD recettes automatiques (« recettes attendues ») ---
+
+
+def test_create_recurring_revenue_success(client, as_admin, monkeypatch, silence_audit):
+    mock_client = _mock_client(
+        monkeypatch,
+        recurring_revenue_rows=[_row(as_admin)],
+        category=REVENUE_CATEGORY,
+    )
+    monkeypatch.setattr(recurring_service, "_today", lambda: date(2026, 7, 18))
+
+    resp = client.post("/recurring-revenues", json=CREATE_PAYLOAD)
+
+    assert resp.status_code == 201
+    inserted = mock_client.tables["recurring_revenues"].insert.call_args.args[0]
+    assert inserted["company_id"] == as_admin.company_id
+    mock_client.tables["recurring_expenses"].insert.assert_not_called()
+    assert any(c["action"] == "recurring_revenue.created" for c in silence_audit)
+
+
+def test_create_recurring_revenue_rejects_expense_category(client, as_admin, monkeypatch):
+    _mock_client(monkeypatch, category=EXPENSE_CATEGORY)
+
+    resp = client.post("/recurring-revenues", json=CREATE_PAYLOAD)
+
+    assert resp.status_code == 400
+    assert "catégorie de recette" in resp.json()["detail"]
+
+
+def test_recurring_revenues_forbidden_for_user(client, as_user, monkeypatch):
+    """Les users saisissent uniquement : jamais d'accès aux recettes attendues."""
+    mock_client = _mock_client(monkeypatch)
+
+    assert client.get("/recurring-revenues").status_code == 403
+    assert client.post("/recurring-revenues", json=CREATE_PAYLOAD).status_code == 403
+    mock_client.tables["recurring_revenues"].insert.assert_not_called()
+
+
 # --- Matérialisation catch-up (vraie fonction, client mocké) ---
 
 
-def test_materialize_generates_due_occurrence(monkeypatch, capture_threshold_checks):
+def test_materialize_generates_pending_expense(
+    monkeypatch, capture_threshold_checks, capture_notifications
+):
+    """Une dépense automatique est générée EN ATTENTE : elle suit le workflow de
+    validation standard — pas de consommé ni d'alerte de seuil avant approbation."""
     mock_client = _mock_client(
         monkeypatch,
         recurring_rows=[{**RECURRING_ROW, "company_id": "co1", "next_due": "2026-07-01"}],
+        admins=[{"id": "admin-1"}, {"id": "adjoint-1"}],
     )
     monkeypatch.setattr(recurring_service, "_today", lambda: date(2026, 7, 18))
 
@@ -218,7 +296,7 @@ def test_materialize_generates_due_occurrence(monkeypatch, capture_threshold_che
 
     assert generated == 1
     expense = mock_client.tables["expenses"].insert.call_args.args[0]
-    assert expense["status"] == "approved"  # décision produit : pas de validation
+    assert expense["status"] == "pending"  # décision produit : validation obligatoire
     assert expense["expense_date"] == "2026-07-01"
     assert expense["recurring_id"] == "rec1"
     assert expense["user_id"] == "creator-1"
@@ -226,8 +304,37 @@ def test_materialize_generates_due_occurrence(monkeypatch, capture_threshold_che
     # Curseur avancé, toujours active (1/3)
     update_payload = mock_client.tables["recurring_expenses"].update.call_args.args[0]
     assert update_payload == {"months_done": 1, "next_due": "2026-08-01", "active": True}
-    # Les seuils budgétaires s'appliquent aussi aux dépenses automatiques
-    assert len(capture_threshold_checks) == 1
+    # Les seuils budgétaires ne bougent qu'à l'approbation (flux de revue standard)
+    assert len(capture_threshold_checks) == 0
+    # Chaque admin actif (principal + adjoint) est notifié de l'échéance à valider
+    assert len(capture_notifications) == 2
+    assert {n["user_id"] for n in capture_notifications} == {"admin-1", "adjoint-1"}
+    assert all(n["type_"] == "expense_pending_auto" for n in capture_notifications)
+    assert all(n["expense_id"] == "e-new" for n in capture_notifications)
+
+
+def test_materialize_generates_confirmed_revenue(monkeypatch, capture_notifications):
+    """Une recette automatique suit la règle des recettes : confirmée d'office,
+    sans validation ni notification."""
+    mock_client = _mock_client(
+        monkeypatch,
+        recurring_revenue_rows=[
+            {**RECURRING_ROW, "company_id": "co1", "next_due": "2026-07-01"}
+        ],
+    )
+    monkeypatch.setattr(recurring_service, "_today", lambda: date(2026, 7, 18))
+
+    generated = REAL_MATERIALIZE("co1")
+
+    assert generated == 1
+    revenue = mock_client.tables["revenues"].insert.call_args.args[0]
+    assert revenue["status"] == "approved"
+    assert revenue["revenue_date"] == "2026-07-01"
+    assert revenue["recurring_id"] == "rec1"
+    mock_client.tables["expenses"].insert.assert_not_called()
+    update_payload = mock_client.tables["recurring_revenues"].update.call_args.args[0]
+    assert update_payload == {"months_done": 1, "next_due": "2026-08-01", "active": True}
+    assert len(capture_notifications) == 0
 
 
 def test_materialize_catches_up_missed_months(monkeypatch):
@@ -251,7 +358,7 @@ def test_materialize_catches_up_missed_months(monkeypatch):
 
 
 def test_materialize_completes_and_deactivates(monkeypatch):
-    """Dernier mois décompté → abandon automatique de l'automatisation."""
+    """Dernier mois généré → arrêt automatique de l'automatisation."""
     mock_client = _mock_client(
         monkeypatch,
         recurring_rows=[
@@ -269,12 +376,12 @@ def test_materialize_completes_and_deactivates(monkeypatch):
 
 
 def test_materialize_is_idempotent(monkeypatch):
-    """Échéance déjà décomptée (index unique) : jamais de double décompte,
-    mais le curseur avance quand même."""
+    """Échéance déjà générée (index unique) — même rejetée ensuite : jamais de
+    double génération, mais le curseur avance quand même."""
     mock_client = _mock_client(
         monkeypatch,
         recurring_rows=[{**RECURRING_ROW, "company_id": "co1", "next_due": "2026-07-01"}],
-        existing_expense={"id": "e-exists"},
+        existing_tx={"id": "e-exists"},
     )
     monkeypatch.setattr(recurring_service, "_today", lambda: date(2026, 7, 18))
 

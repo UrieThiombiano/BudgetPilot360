@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Factory, MapPin, Megaphone, Phone, Users, X } from "lucide-react";
+import { Check, Factory, MapPin, Megaphone, Phone, Trash2, Users, X } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bar,
@@ -292,6 +292,9 @@ export default function PlatformPage() {
   const [openRequestId, setOpenRequestId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Suppression définitive : la cible + le nom saisi pour confirmer.
+  const [deleteTarget, setDeleteTarget] = useState<PlatformCompany | null>(null);
+  const [deleteName, setDeleteName] = useState("");
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["platform-stats"],
@@ -311,6 +314,20 @@ export default function PlatformPage() {
       (await api.post(`/platform/companies/${id}/subscription`, { action })).data,
     onSuccess: () => {
       setConfirmId(null);
+      void queryClient.invalidateQueries({ queryKey: ["platform-companies"] });
+      void queryClient.invalidateQueries({ queryKey: ["platform-stats"] });
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const deleteCompany = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/platform/companies/${id}`)).data,
+    onSuccess: () => {
+      setMessage(
+        `Entreprise « ${deleteTarget?.name} » supprimée définitivement — données, utilisateurs et justificatifs effacés.`
+      );
+      setDeleteTarget(null);
+      setDeleteName("");
       void queryClient.invalidateQueries({ queryKey: ["platform-companies"] });
       void queryClient.invalidateQueries({ queryKey: ["platform-stats"] });
     },
@@ -525,14 +542,25 @@ export default function PlatformPage() {
                           <button type="button" onClick={() => setConfirmId(null)} className="btn btn-ghost px-2.5 py-1 text-xs">Annuler</button>
                         </span>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => { setError(null); setConfirmId(c.id); }}
-                          className={`btn px-2.5 py-1 text-xs ${suspending ? "btn-danger" : ""}`}
-                          style={suspending ? undefined : { border: "1px solid color-mix(in srgb, var(--success) 35%, transparent)", color: "var(--success-ink)" }}
-                        >
-                          {suspending ? "Suspendre" : "Réactiver"}
-                        </button>
+                        <span className="inline-flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setError(null); setConfirmId(c.id); }}
+                            className={`btn px-2.5 py-1 text-xs ${suspending ? "btn-danger" : ""}`}
+                            style={suspending ? undefined : { border: "1px solid color-mix(in srgb, var(--success) 35%, transparent)", color: "var(--success-ink)" }}
+                          >
+                            {suspending ? "Suspendre" : "Réactiver"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setError(null); setMessage(null); setDeleteTarget(c); setDeleteName(""); }}
+                            aria-label={`Supprimer définitivement ${c.name}`}
+                            title="Supprimer définitivement"
+                            className="btn btn-ghost px-2 py-1 text-xs text-danger-ink"
+                          >
+                            <Trash2 size={13} strokeWidth={2} />
+                          </button>
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -540,6 +568,45 @@ export default function PlatformPage() {
               })}
             </tbody>
           </table>
+        )}
+
+        {/* Zone de danger : suppression définitive, confirmée par la saisie du nom */}
+        {deleteTarget && (
+          <div className="mt-5 rounded-xl border border-danger/40 bg-danger-soft/40 p-4">
+            <p className="text-sm font-semibold text-danger-ink">
+              Supprimer définitivement « {deleteTarget.name} »
+            </p>
+            <p className="mt-1 text-xs text-fg-muted">
+              Action irréversible : dépenses, recettes, budgets, utilisateurs, comptes de
+              connexion et justificatifs seront effacés. Pour une coupure temporaire,
+              préférez « Suspendre ». Tapez le nom exact de l'entreprise pour confirmer.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                aria-label="Nom de l'entreprise à supprimer"
+                value={deleteName}
+                onChange={(e) => setDeleteName(e.target.value)}
+                className="field max-w-72"
+                placeholder={deleteTarget.name}
+              />
+              <button
+                type="button"
+                disabled={deleteName.trim() !== deleteTarget.name || deleteCompany.isPending}
+                onClick={() => deleteCompany.mutate(deleteTarget.id)}
+                className="btn btn-danger px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                <Trash2 size={13} strokeWidth={2} />
+                {deleteCompany.isPending ? "Suppression…" : "Supprimer définitivement"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDeleteTarget(null); setDeleteName(""); }}
+                className="btn btn-ghost px-3 py-1.5 text-xs"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
         )}
       </motion.section>
     </div>
