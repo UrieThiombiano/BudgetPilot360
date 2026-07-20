@@ -1,4 +1,5 @@
-"""Tests des rapports (Phase 7.1) : données, PDF, Excel, RBAC, période, audit."""
+"""Tests des rapports (Phase 7.1) : données, PDF, Excel, RBAC, période, audit.
+Inclut l'export complet des données de l'entreprise (portabilité)."""
 
 import io
 from types import SimpleNamespace
@@ -6,6 +7,7 @@ from unittest.mock import MagicMock
 
 from openpyxl import load_workbook
 
+import app.modules.reports.full_export as full_export
 import app.modules.reports.service as reports_service
 
 COMPANY = {
@@ -224,3 +226,147 @@ def test_export_empty_period(client, as_admin, monkeypatch, silence_audit):
     assert wb["Résumé"]["B4"].value == 0.0  # recettes
     assert wb["Résumé"]["B5"].value == 0.0  # dépenses
     assert wb["Dépenses"].max_row >= 1
+
+
+# --- Export complet des données de l'entreprise (portabilité) ---
+
+FULL_COMPANY = {
+    **COMPANY,
+    "plan": "standard",
+    "subscription_status": "active",
+    "subscription_ends_at": "2027-07-17",
+    "created_at": "2026-07-01T10:00:00+00:00",
+    "owner_id": "a1",
+}
+FULL_PROFILES = [
+    {"id": "a1", "full_name": "Awa Admin", "email": "awa@acme-corp.fr", "job_title": "DG",
+     "role": "admin", "removed_at": None, "created_at": "2026-07-01T10:00:00+00:00"},
+    {"id": "u1", "full_name": "Jean User", "email": "jean@acme-corp.fr", "job_title": "Commercial",
+     "role": "user", "removed_at": "2026-07-10T00:00:00+00:00", "created_at": "2026-07-02T10:00:00+00:00"},
+]
+FULL_EXPENSES = [
+    {"expense_date": "2026-07-02", "amount": "100.00", "description": "Taxi", "status": "approved",
+     "rejection_reason": None, "receipt_path": "co/e1/x.pdf", "recurring_id": None,
+     "created_at": "2026-07-02T09:00:00+00:00", "category_id": "c1", "user_id": "u1", "reviewed_by": "a1"},
+]
+FULL_REVENUES = [
+    {"revenue_date": "2026-07-03", "amount": "400.00", "description": "Vente", "status": "approved",
+     "source": "Client A", "recurring_id": "rr1", "proof_path": None,
+     "created_at": "2026-07-03T09:00:00+00:00", "category_id": "cr1", "user_id": "a1"},
+]
+FULL_RECURRING = [
+    {"description": "Licence compta", "amount": "45000.00", "day_of_month": 1, "months_total": 12,
+     "months_done": 2, "active": True, "next_due": "2026-08-01", "category_id": "c1",
+     "created_at": "2026-07-01T10:00:00+00:00"},
+]
+FULL_AUDIT = [
+    {"created_at": "2026-07-05T08:00:00+00:00", "action": "expense.approved", "actor_id": "a1",
+     "details": {"id": "e1", "amount": "100.00"}},
+]
+
+
+def _mock_full_export_client(monkeypatch):
+    mock_client = MagicMock()
+    tables = {
+        "companies": MagicMock(),
+        "profiles": MagicMock(),
+        "categories": MagicMock(),
+        "expenses": MagicMock(),
+        "revenues": MagicMock(),
+        "recurring_expenses": MagicMock(),
+        "recurring_revenues": MagicMock(),
+        "audit_logs": MagicMock(),
+    }
+    mock_client.table.side_effect = lambda name: tables[name]
+    mock_client.tables = tables
+
+    tables["companies"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=[FULL_COMPANY]
+    )
+    tables["profiles"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=FULL_PROFILES
+    )
+    tables["categories"].select.return_value.eq.return_value.execute.return_value = SimpleNamespace(
+        data=CATEGORIES
+    )
+    tables["expenses"].select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(
+        data=FULL_EXPENSES
+    )
+    tables["revenues"].select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(
+        data=FULL_REVENUES
+    )
+    tables["recurring_expenses"].select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(
+        data=FULL_RECURRING
+    )
+    tables["recurring_revenues"].select.return_value.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(
+        data=[]
+    )
+    tables["audit_logs"].select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value = SimpleNamespace(
+        data=FULL_AUDIT
+    )
+
+    monkeypatch.setattr(full_export, "get_service_client", lambda: mock_client)
+    return mock_client
+
+
+def test_company_export_full_workbook(client, as_admin, monkeypatch, silence_audit):
+    """Export complet : une feuille par famille, tous statuts et toutes périodes."""
+    _mock_full_export_client(monkeypatch)
+
+    resp = client.get("/reports/company-export")
+
+    assert resp.status_code == 200
+    assert "spreadsheetml" in resp.headers["content-type"]
+    assert 'filename="donnees_budgetpilot360_' in resp.headers["content-disposition"]
+
+    wb = load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == [
+        "Entreprise", "Équipe", "Catégories", "Dépenses", "Recettes",
+        "Automatisations", "Journal d'audit",
+    ]
+
+    entreprise = wb["Entreprise"]
+    assert "Acme" in entreprise["A1"].value
+    assert entreprise["B3"].value == "Acme"
+    assert entreprise["B9"].value == "1 / 2"  # 1 actif (Awa), Jean retiré
+
+    equipe = wb["Équipe"]
+    assert equipe.max_row == 3
+    assert equipe["D2"].value == "Admin principal"  # a1 = owner_id
+    assert equipe["E3"].value == "Retiré"
+
+    depenses = wb["Dépenses"]
+    assert depenses["B2"].value == "Transport"
+    assert depenses["F2"].value == "Approuvée"
+    assert depenses["H2"].value == "Oui"  # justificatif présent
+    assert depenses["J2"].value == "Awa Admin"  # validée par
+
+    recettes = wb["Recettes"]
+    assert recettes["D2"].value == "Client A"
+    assert recettes["G2"].value == "Confirmée"
+    assert recettes["J2"].value == "Oui"  # issue d'une automatisation
+
+    autos = wb["Automatisations"]
+    assert autos["A2"].value == "Dépense"
+    assert autos["F2"].value == "2/12"
+
+    audit_ws = wb["Journal d'audit"]
+    assert audit_ws["B2"].value == "expense.approved"
+    assert audit_ws["C2"].value == "Awa Admin"
+
+    entry = next(c for c in silence_audit if c["action"] == "company.data_exported")
+    assert entry["company_id"] == as_admin.company_id
+
+
+def test_company_export_forbidden_for_user(client, as_user, monkeypatch):
+    mock_client = _mock_full_export_client(monkeypatch)
+
+    assert client.get("/reports/company-export").status_code == 403
+    mock_client.table.assert_not_called()
+
+
+def test_company_export_requires_company(client, as_super_admin, monkeypatch):
+    """Le super_admin Pukri n'a pas d'entreprise : pas d'export global par ce biais."""
+    _mock_full_export_client(monkeypatch)
+
+    assert client.get("/reports/company-export").status_code == 400

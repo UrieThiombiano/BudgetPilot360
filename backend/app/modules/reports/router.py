@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.core import audit
 from app.core.security import CurrentUser, require_role
-from app.modules.reports import excel, pdf, service
+from app.modules.reports import excel, full_export, pdf, service
 
 router = APIRouter()
 
@@ -87,5 +87,38 @@ async def export_report(
     return Response(
         content=content,
         media_type=MEDIA_TYPES[format],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/company-export")
+async def export_company_data(
+    user: CurrentUser = Depends(require_role("admin", "super_admin")),
+):
+    """Export COMPLET des données de l'entreprise (portabilité) — classeur Excel :
+    Entreprise, Équipe, Catégories, Dépenses, Recettes, Automatisations, Audit.
+
+    Toutes les périodes, tous les statuts — pas seulement une période de rapport.
+    Audité : c'est une sortie de données hors de la plateforme.
+    """
+    if not user.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Aucune entreprise associée à ce compte.",
+        )
+
+    content = full_export.render_company_export(user.company_id)
+
+    audit.log_action(
+        company_id=user.company_id,
+        actor_id=user.id,
+        action="company.data_exported",
+        details={"size_bytes": len(content)},
+    )
+
+    filename = f"donnees_budgetpilot360_{date.today().isoformat()}.xlsx"
+    return Response(
+        content=content,
+        media_type=MEDIA_TYPES["excel"],
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

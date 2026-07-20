@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Eye, FileBarChart } from "lucide-react";
+import { DatabaseBackup, Eye, FileBarChart } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "../lib/api";
 import ReportPreview, { type ReportData } from "../components/ReportPreview";
@@ -68,6 +68,20 @@ export default function ReportsPage() {
       })).data,
     onMutate: () => setError(null),
     onSuccess: (data) => setReport(data),
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const exportAll = useMutation({
+    mutationFn: async () => {
+      const resp = await api.get("/reports/company-export", { responseType: "blob" });
+      const url = URL.createObjectURL(resp.data as Blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `donnees_budgetpilot360_${toISO(new Date())}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+    onMutate: () => setError(null),
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
@@ -160,6 +174,42 @@ export default function ReportsPage() {
           <li>• <strong className="text-fg">Section 2 — Bilan détaillé</strong> : pont financier, budget vs réalisé, évolution mensuelle, et le détail ligne à ligne des recettes et dépenses.</li>
           <li>• Téléchargement au choix : rapport <strong className="text-fg">complet</strong> ou <strong className="text-fg">résumé seul</strong>, en PDF (graphiques inclus) ou Excel (graphiques natifs).</li>
         </ul>
+      </motion.section>
+
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1], delay: 0.14 }}
+        className="card mt-4 p-6"
+      >
+        <h2 className="font-display text-sm font-semibold text-fg">Vos données vous appartiennent</h2>
+        <p className="mt-2 text-sm text-fg-muted">
+          Téléchargez à tout moment l'intégralité des données de votre entreprise dans un
+          classeur Excel : équipe, catégories, toutes les dépenses et recettes (tous statuts,
+          toutes périodes), automatisations et journal d'audit.
+        </p>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.98 }}
+          disabled={exportAll.isPending}
+          onClick={() => exportAll.mutate()}
+          className="btn btn-ghost mt-4 border border-line-strong"
+        >
+          {exportAll.isPending ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden />
+              Préparation de l'export…
+            </>
+          ) : (
+            <>
+              <DatabaseBackup size={16} strokeWidth={2} /> Exporter toutes mes données (Excel)
+            </>
+          )}
+        </motion.button>
+        <p className="mt-2 text-xs text-fg-subtle">
+          Les justificatifs (fichiers joints) ne sont pas inclus dans le classeur — ils restent
+          téléchargeables depuis chaque dépense ou recette.
+        </p>
       </motion.section>
 
       {report && (
