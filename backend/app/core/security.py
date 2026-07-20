@@ -85,9 +85,15 @@ async def get_current_user(
     # On va chercher le profil applicatif (company_id, role) avec le service_role
     # pour bypasser la RLS ici — c'est le backend qui fait autorité sur le RBAC.
     client = get_service_client()
+    # companies(...) seul est ambigu depuis sql/010 (companies.owner_id référence
+    # aussi profiles) : PostgREST voit deux FK entre profiles et companies et
+    # refuse de deviner (PGRST201) — on force la relation profiles.company_id.
     resp = (
         client.table("profiles")
-        .select("company_id, role, job_title, removed_at, companies(subscription_status)")
+        .select(
+            "company_id, role, job_title, removed_at, "
+            "companies!profiles_company_id_fkey(subscription_status)"
+        )
         .eq("id", user_id)
         .execute()
     )
